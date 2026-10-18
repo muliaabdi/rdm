@@ -18,8 +18,9 @@ for d in \
   "$HOME/.config/google-chrome/NativeMessagingHosts" \
   "$HOME/.config/chromium/NativeMessagingHosts" \
   "$HOME/.config/vivaldi/NativeMessagingHosts" \
+  "$HOME/.config/microsoft-edge/NativeMessagingHosts" \
   "$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts" \
-  "$HOME/.config/Microsoft Edge/NativeMessagingHosts" \
+  "$HOME/.config/BraveSoftware/Brave-Origin/NativeMessagingHosts" \
   "$HOME/.mozilla/native-messaging-hosts"; do
   mkdir -p "$d"
   printf '%s\n' "$MANIFEST" > "$d/$HOST_NAME.json"
