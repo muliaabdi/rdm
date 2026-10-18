@@ -86,23 +86,39 @@ fn probe_url(ctx: State<'_, Arc<Ctx>>, url: String) -> Result<(), String> {
 #[tauri::command]
 fn open_path(path: String, folder: bool) -> Result<(), String> {
     use std::process::{Command, Stdio};
+    eprintln!("open_path: path={path:?} folder={folder}");
     let p = std::path::PathBuf::from(&path);
     let target = if folder {
         if p.is_dir() { p } else { p.parent().map(|x| x.to_path_buf()).unwrap_or(p) }
     } else {
         p
     };
+    eprintln!("open_path: target={:?} exists={}", target, target.exists());
     if !target.exists() {
         return Err(if folder { "folder not found".into() } else { "file not found".into() });
     }
-    Command::new("xdg-open")
-        .arg(&target)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("xdg-open: {e}"))
+    for (bin, args) in [
+        ("xdg-open", vec![target.to_string_lossy().to_string()]),
+        ("gio", vec!["open".into(), target.to_string_lossy().to_string()]),
+        ("kioclient", vec!["exec".into(), target.to_string_lossy().to_string()]),
+    ] {
+        match Command::new(bin)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+        {
+            Ok(st) => {
+                eprintln!("open_path: {bin} -> {st}");
+                if st.success() {
+                    return Ok(());
+                }
+            }
+            Err(e) => eprintln!("open_path: {bin} spawn failed: {e}"),
+        }
+    }
+    Err("no opener worked (xdg-open/gio/kioclient)".into())
 }
 
 #[tauri::command]

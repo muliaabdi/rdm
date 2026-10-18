@@ -213,6 +213,19 @@
   #ctx button:disabled { opacity: .35; pointer-events: none; }
   #ctx button svg { width: 14px; height: 14px; flex: none; }
   #ctx .sep { height: 1px; margin: 4px 9px; background: var(--line); }
+
+  /* ---- toast ---- */
+  #toast {
+    position: fixed; left: 50%; bottom: 36px; z-index: 90;
+    transform: translateX(-50%) translateY(6px);
+    background: #2b2f36; color: #f2f3f5;
+    padding: 8px 16px; border-radius: 9px; font-size: 12px;
+    max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    box-shadow: 0 8px 24px rgba(0,0,0,.28);
+    opacity: 0; pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  #toast.on { opacity: 1; transform: translateX(-50%); }
   #dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 11px; }
   #dlg .fld label { width: 96px; color: #4a4e54; }
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
@@ -341,6 +354,8 @@ const I18N = {
     ph_dir: "default: ~/Downloads", fld_lang: "Language", btn_save: "Save",
     err_url_http: "URL must be http(s)",
     err_not_connected: "not connected to the daemon",
+    err_gone_file: "File no longer exists on disk", err_gone_folder: "Folder no longer exists",
+    err_no_opener: "No app found to open this",
     fld_intercept: "Intercept types", ph_intercept: "empty = all · zip, rar, exe, pdf",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
     col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
@@ -375,6 +390,8 @@ const I18N = {
     ph_dir: "bawaan: ~/Downloads", fld_lang: "Bahasa", btn_save: "Simpan",
     err_url_http: "URL harus http(s)",
     err_not_connected: "belum terhubung ke daemon",
+    err_gone_file: "Berkas sudah tidak ada di disk", err_gone_folder: "Folder sudah tidak ada",
+    err_no_opener: "Tidak ada aplikasi untuk membuka ini",
     fld_intercept: "Jenis interupsi", ph_intercept: "kosong = semua · zip, rar, exe, pdf",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
     col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
@@ -403,8 +420,26 @@ function trErr(e) {
   const map = {
     "URL must be http(s)": "err_url_http",
     "not connected to the daemon": "err_not_connected",
+    "file not found": "err_gone_file",
+    "folder not found": "err_gone_folder",
+    "no opener worked (xdg-open/gio/kioclient)": "err_no_opener",
   };
   return map[s] ? t(map[s]) : s;
+}
+
+/* in-app toast replaces the ugly webview alert() */
+let toastTimer = null;
+function toast(msg) {
+  let el = $("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast"; el.setAttribute("role", "status");
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 3800);
 }
 
 async function setLang(next) {
@@ -650,16 +685,16 @@ function openCtx(id, x, y) {
     { ic: "details", label: t("details"), en: true,
       fn: (i) => openDetails(i) },
     { ic: "openfile", label: t("ctx_open_file"), en: j.status === "completed",
-      fn: (i) => invoke("open_path", { path: jobs.get(i)?.out_path || "", folder: false }).catch((e) => alert(trErr(e))) },
+      fn: (i) => invoke("open_path", { path: jobs.get(i)?.out_path || "", folder: false }).catch((e) => toast(trErr(e))) },
     { ic: "openfolder", label: t("ctx_open_folder"), en: !!(j.out_path && j.status !== "confirming"),
-      fn: (i) => invoke("open_path", { path: jobs.get(i)?.out_path || "", folder: true }).catch((e) => alert(trErr(e))) },
+      fn: (i) => invoke("open_path", { path: jobs.get(i)?.out_path || "", folder: true }).catch((e) => toast(trErr(e))) },
     running || canResume
       ? { ic: running ? "stop" : "resume", label: running ? t("stop") : t("resume"), en: true,
-          fn: (i) => invoke("job_action", { action: running ? "pause" : "resume", id: i }).catch((e) => alert(trErr(e))) }
+          fn: (i) => invoke("job_action", { action: running ? "pause" : "resume", id: i }).catch((e) => toast(trErr(e))) }
       : { ic: "resume", label: t("resume"), en: false, fn: () => {} },
     "sep",
     { ic: "delete", label: t("delete"), en: true,
-      fn: (i) => invoke("job_action", { action: "delete", id: i }).catch((e) => alert(trErr(e))) },
+      fn: (i) => invoke("job_action", { action: "delete", id: i }).catch((e) => toast(trErr(e))) },
   ];
   const html = items.map((it) => it === "sep"
     ? '<div class="sep"></div>'
@@ -716,11 +751,11 @@ function openConfirm(m) {
       <button id="cf-ok" class="pri">${t("btn_download")}</button>
     </div>`);
   $("cf-cancel").onclick = () => {
-    invoke("job_action", { action: "delete", id: m.id }).catch((e) => alert(trErr(e)));
+    invoke("job_action", { action: "delete", id: m.id }).catch((e) => toast(trErr(e)));
     closeModal();
   };
   $("cf-ok").onclick = () => {
-    invoke("job_action", { action: "resume", id: m.id }).catch((e) => alert(trErr(e)));
+    invoke("job_action", { action: "resume", id: m.id }).catch((e) => toast(trErr(e)));
     closeModal();
   };
 }
@@ -762,7 +797,7 @@ function openDetails(id) {
     const jj = jobs.get(detailsFor);
     if (!jj) return;
     const action = jj.status === "running" ? "pause" : "resume";
-    invoke("job_action", { action, id: detailsFor }).catch((e) => alert(trErr(e)));
+    invoke("job_action", { action, id: detailsFor }).catch((e) => toast(trErr(e)));
   };
   const cv = $("dt-graph");
   new ResizeObserver(() => paintGraph(cv, detailSeries())).observe(cv);
@@ -991,7 +1026,7 @@ $("b-add").onclick = () => {
       const audio = val === "audio";
       const h = audio ? 0 : Number(val) || 1080;
       try { await invoke("add_page", { url: m.url, height: h, audioOnly: audio }); }
-      catch (e) { alert(trErr(e)); }
+      catch (e) { toast(trErr(e)); }
       closeModal();
     };
   };
@@ -1013,7 +1048,7 @@ $("b-add").onclick = () => {
     const url = $("m-url").value.trim();
     if (!url) return;
     if (isPageUrl(url) && !$("m-quality").innerHTML) { return detect(); }
-    try { await invoke("add_url", { url }); } catch (e) { alert(trErr(e)); }
+    try { await invoke("add_url", { url }); } catch (e) { toast(trErr(e)); }
     closeModal();
   };
   $("m-ok").onclick = go;
@@ -1021,10 +1056,10 @@ $("b-add").onclick = () => {
   setTimeout(() => $("m-url").focus(), 50);
 };
 
-$("b-resume").onclick = () => selected && invoke("job_action", { action: "resume", id: selected }).catch((e) => alert(trErr(e)));
-$("b-stop").onclick = () => selected && invoke("job_action", { action: "pause", id: selected }).catch((e) => alert(trErr(e)));
-$("b-delete").onclick = () => selected && invoke("job_action", { action: "delete", id: selected }).catch((e) => alert(trErr(e)));
-$("b-restart").onclick = () => selected && invoke("job_action", { action: "restart", id: selected }).catch((e) => alert(trErr(e)));
+$("b-resume").onclick = () => selected && invoke("job_action", { action: "resume", id: selected }).catch((e) => toast(trErr(e)));
+$("b-stop").onclick = () => selected && invoke("job_action", { action: "pause", id: selected }).catch((e) => toast(trErr(e)));
+$("b-delete").onclick = () => selected && invoke("job_action", { action: "delete", id: selected }).catch((e) => toast(trErr(e)));
+$("b-restart").onclick = () => selected && invoke("job_action", { action: "restart", id: selected }).catch((e) => toast(trErr(e)));
 // Details opens by double-click, Enter or the row context menu
 $("rows").addEventListener("keydown", (e) => e.key === "Enter" && document.activeElement.classList.contains("row") && openDetails(+document.activeElement.dataset.id));
 
