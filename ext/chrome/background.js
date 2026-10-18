@@ -7,16 +7,45 @@ const SEEN_TTL = 10 * 60 * 1000;
 
 let port = null;
 let intercept = true; // takeover: cancel native downloads, route to RDM
+let interceptExt = null; // null/[] = every type; array = extension allow-list
 
-chrome.storage.local.get({ intercept: true }, (s) => (intercept = !!s.intercept));
-chrome.storage.onChanged.addListener((ch, area) => {
-  if (area === "local" && ch.intercept) intercept = !!ch.intercept.newValue;
+chrome.storage.local.get({ intercept: true, interceptExt: null }, (s) => {
+  intercept = !!s.intercept;
+  interceptExt = Array.isArray(s.interceptExt) ? s.interceptExt : null;
 });
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area !== "local") return;
+  if (ch.intercept) intercept = !!ch.intercept.newValue;
+  if (ch.interceptExt) interceptExt = Array.isArray(ch.interceptExt.newValue) ? ch.interceptExt.newValue : null;
+});
+
+function extOf(name, url) {
+  let m = /\.([a-z0-9]{1,8})$/i.exec(name || "");
+  if (!m) {
+    try { m = /\.([a-z0-9]{1,8})$/i.exec(new URL(url).pathname); } catch {}
+  }
+  return m ? m[1].toLowerCase() : "";
+}
+
+// allow-list from RDM settings; unknown/no extension still takes over
+function extAllowed(name, url) {
+  if (!Array.isArray(interceptExt) || !interceptExt.length) return true;
+  const e = extOf(name, url);
+  return !e || interceptExt.includes(e);
+}
 
 function ensurePort() {
   if (!port) {
     port = chrome.runtime.connectNative(HOST_NAME);
-    port.onMessage.addListener((m) => console.log("rdm:", m));
+    port.onMessage.addListener((m) => {
+      if (m && m.t === "settings" && m.settings) {
+        const v = Array.isArray(m.settings.intercept_ext) ? m.settings.intercept_ext : null;
+        if (JSON.stringify(v) !== JSON.stringify(interceptExt)) {
+          interceptExt = v;
+          chrome.storage.local.set({ interceptExt: v });
+        }
+      }
+    });
     port.onDisconnect.addListener(() => {
       if (chrome.runtime.lastError) console.warn("rdm: host disconnect:", chrome.runtime.lastError.message);
       port = null;
@@ -48,13 +77,30 @@ function cdFilename(cd) {
   return m ? decodeURIComponent(m[1]) : "";
 }
 
-async function offer(url, filename, referer) {
+async function offer(url, filename, referer, confirm) {
   const cookie = await cookieHeader(url);
   ensurePort().postMessage({
     t: "offer",
     url,
     filename: filename || nameFromUrl(url),
     referer: referer || "",
+    cookie,
+    ua: navigator.userAgent,
+    segments: 8,
+    confirm: !!confirm,
+  });
+}
+
+// Page-level offer: resolve the page via yt-dlp and download the best media.
+async function pageOffer(url, height) {
+  const cookie = await cookieHeader(url);
+  ensurePort().postMessage({
+    t: "offer-page",
+    url,
+    page: true,
+    height: height || 1080,
+    audio_only: false,
+    referer: url,
     cookie,
     ua: navigator.userAgent,
     segments: 8,
@@ -67,7 +113,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: "rdm-download",
-      title: "Unduh dengan RDM",
+      title: "Download with RDM",
       contexts: ["link", "video", "audio", "image"],
     });
   });
@@ -84,6 +130,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.t === "fab-offer" && msg.url) {
     offer(msg.url, msg.name || "", sender.tab ? sender.tab.url : "").catch(console.warn);
+    sendResponse({ ok: true });
+  } else if (msg && msg.t === "page-offer" && msg.url) {
+    pageOffer(msg.url, msg.height).catch(console.warn);
     sendResponse({ ok: true });
   }
   return false;
@@ -150,12 +199,14 @@ chrome.downloads.onCreated.addListener(async (item) => {
     if (!/^https?:/i.test(url)) return;
     if (url.startsWith("blob:") || url.startsWith("data:")) return;
 
+    const name = (item.filename || "").split(/[\\/]/).pop() || nameFromUrl(url);
+    if (!extAllowed(name, url)) return; // not in the RDM allow-list: let the browser handle it
+
     await chrome.downloads.cancel(item.id).catch(() => {});
     await chrome.downloads.erase({ id: item.id }).catch(() => {});
 
-    const name = (item.filename || "").split(/[\\/]/).pop() || nameFromUrl(url);
     console.log("rdm: takeover", name);
-    await offer(url, name, item.referrer || "");
+    await offer(url, name, item.referrer || "", true);
   } catch (e) {
     console.warn("rdm: takeover failed", e);
   }
@@ -207,7 +258,7 @@ function injectFab(url, name, len) {
   b.onmouseleave = () => (b.style.filter = "none");
   b.onclick = () => {
     chrome.runtime.sendMessage({ t: "fab-offer", url, name, page: location.href });
-    b.textContent = "✓ dikirim ke RDM";
+    b.textContent = "✓ sent to RDM";
     setTimeout(() => host.remove(), 1200);
   };
   const dismiss = document.createElement("div");

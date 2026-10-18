@@ -3,5 +3,14 @@
   "identifier": "default",
   "description": "RDM UI: event listen + core defaults",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default", "core:event:allow-listen", "core:event:allow-emit"]
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:window:allow-show",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-always-on-top"
+  ]
 }

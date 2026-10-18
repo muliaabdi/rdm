@@ -1,4 +1,4 @@
-// Video overlay: IDM-style "Unduh dengan RDM" tooltip above <video>/<audio>.
+// Video overlay: IDM-style "Download with RDM" tooltip above <video>/<audio>.
 // Runs in all frames; hover a playable media element to reveal.
 
 (function () {
@@ -8,6 +8,10 @@
   let btn = null;
   let hideTimer = null;
   let current = null;
+  let pageModeNow = false;
+
+  const PAGE_HOSTS = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|instagram\.com|tiktok\.com|twitter\.com|x\.com|facebook\.com|fb\.watch|reddit\.com|soundcloud\.com|bilibili\.com|nicovideo\.jp|rumble\.com|odysee\.com)$/i;
+  const onVideoSite = () => { try { return PAGE_HOSTS.test(location.hostname); } catch { return false; } };
 
   function urlOf(el) {
     const u = el.currentSrc || el.src || "";
@@ -43,8 +47,9 @@
     btn.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
   }
 
-  function show(el, url) {
+  function show(el, url, isPage) {
     clearTimeout(hideTimer);
+    pageModeNow = !!isPage;
     if (!btn) {
       btn = document.createElement("div");
       btn.id = "__rdm_video_tip";
@@ -79,18 +84,28 @@
       </style>
       <span class="in">
         <svg viewBox="0 0 24 24" fill="none" stroke="#7db3f5" stroke-width="2.4"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
-        <b>Unduh dengan RDM</b>
+        <b id="__rdm_lbl">Download with RDM</b>
       </span>`;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
         const u = urlOf(current || {});
+        const b = btn.shadowRoot.querySelector("#__rdm_lbl");
+        if (pageModeNow) {
+          b.textContent = "…";
+          chrome.runtime.sendMessage({ t: "page-offer", url: location.href }, () => {
+            const err = chrome.runtime.lastError;
+            b.textContent = err ? "ERR" : "✓";
+          });
+          clearTimeout(hideTimer);
+          hideTimer = setTimeout(destroy, 1200);
+          return;
+        }
         if (!u) return;
-        const b = btn.shadowRoot.querySelector("b");
-        b.textContent = "mengirim…";
+        b.textContent = "sending…";
         chrome.runtime.sendMessage({ t: "fab-offer", url: u, name: nameOf(u), page: location.href }, () => {
           const err = chrome.runtime.lastError;
-          b.textContent = err ? "ERR: " + err.message.slice(0, 30) : "✓ dikirim ke RDM";
+          b.textContent = err ? "ERR: " + err.message.slice(0, 30) : "✓ sent to RDM";
         });
         clearTimeout(hideTimer);
         hideTimer = setTimeout(destroy, 1200);
@@ -100,6 +115,17 @@
       window.addEventListener("resize", place);
     }
     current = el;
+    const lbl = btn.shadowRoot.querySelector("#__rdm_lbl");
+    if (lbl) {
+      if (pageModeNow) {
+        // keep the pill tiny on video pages: icon + "RDM"; the full text is the hover tooltip
+        lbl.textContent = "RDM";
+        btn.title = "Download this page video with RDM";
+      } else {
+        lbl.textContent = "Download with RDM";
+        btn.title = "";
+      }
+    }
     btn.style.opacity = "1";
     place();
   }
@@ -116,8 +142,13 @@
       return;
     }
     const url = urlOf(el);
-    if (!url) return; // blob:/data: streams cannot be re-fetched directly
-    show(el, url);
+    if (!url) {
+      // blob:/data: streams (e.g. YouTube) cannot be re-fetched directly; offer
+      // the page itself so the daemon can resolve it via yt-dlp.
+      if (onVideoSite()) show(el, "", true);
+      return;
+    }
+    show(el, url, false);
   }, true);
 
   document.addEventListener("mouseleave", scheduleHide, true);

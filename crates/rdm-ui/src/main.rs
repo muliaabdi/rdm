@@ -49,7 +49,7 @@ fn send_line(ctx: &Ctx, line: String) -> Result<(), String> {
     let guard = ctx.tx.lock().map_err(|e| e.to_string())?;
     match &*guard {
         Some(tx) => tx.try_send(line).map_err(|e| e.to_string()),
-        None => Err("belum terhubung ke daemon".into()),
+        None => Err("not connected to the daemon".into()),
     }
 }
 
@@ -61,10 +61,34 @@ fn list_jobs(ctx: State<'_, Arc<Ctx>>) -> Result<(), String> {
 #[tauri::command]
 fn add_url(ctx: State<'_, Arc<Ctx>>, url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("URL harus http(s)".into());
+        return Err("URL must be http(s)".into());
     }
     let s = read_settings();
     let mut offer = json!({"t":"offer","url":url,"segments":8});
+    if let Some(dir) = s.get("dir").and_then(|d| d.as_str()) {
+        offer["dir"] = json!(dir);
+    }
+    if let Some(n) = s.get("segments").and_then(|d| d.as_u64()) {
+        offer["segments"] = json!(n);
+    }
+    send_line(&ctx, offer.to_string())
+}
+
+#[tauri::command]
+fn probe_url(ctx: State<'_, Arc<Ctx>>, url: String) -> Result<(), String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL must be http(s)".into());
+    }
+    send_line(&ctx, json!({"t":"extract","url":url}).to_string())
+}
+
+#[tauri::command]
+fn add_page(ctx: State<'_, Arc<Ctx>>, url: String, height: u64, audio_only: bool) -> Result<(), String> {
+    let s = read_settings();
+    let mut offer = json!({
+        "t":"offer-page","url":url,"page":true,
+        "height":height,"audio_only":audio_only,
+    });
     if let Some(dir) = s.get("dir").and_then(|d| d.as_str()) {
         offer["dir"] = json!(dir);
     }
@@ -105,7 +129,7 @@ async fn connect_daemon() -> anyhow::Result<UnixStream> {
         tokio::time::sleep(Duration::from_millis(400)).await;
     }
     anyhow::bail!(
-        "tidak bisa terhubung ke rdm-daemon di {}",
+        "cannot connect to rdm-daemon at {}",
         rdm_daemon::socket_path().display()
     )
 }
@@ -152,7 +176,7 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
 fn job_action(ctx: State<'_, Arc<Ctx>>, action: String, id: u64) -> Result<(), String> {
     const ALLOWED: [&str; 6] = ["pause", "resume", "cancel", "restart", "delete", "list"];
     if !ALLOWED.contains(&action.as_str()) {
-        return Err(format!("aksi tidak dikenal: {action}"));
+        return Err(format!("unknown action: {action}"));
     }
     send_line(&ctx, json!({"t":action,"id":id}).to_string())
 }
@@ -169,11 +193,83 @@ fn diag(msg: String) {
     }
 }
 
+static TRAY_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Show, unminimize and focus the main window (used by the tray and the daemon).
+fn show_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    // tray on by default; disable with RDM_NOTRAY=1 (desktops without a
+    // StatusNotifier host can abort while creating the indicator)
+    if std::env::var_os("RDM_NOTRAY").is_some() {
+        eprintln!("rdm-ui tray: off (RDM_NOTRAY)");
+        return Ok(());
+    }
+    let id = language();
+    let (m_show, m_quit, tip) = if id {
+        ("Show", "Quit", "RDM")
+    } else {
+        ("Tampilkan", "Keluar", "RDM")
+    };
+    let show_i = MenuItem::with_id(app, "show", m_show, true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", m_quit, true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+    TrayIconBuilder::with_id("rdm-tray")
+        .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?)
+        .tooltip(tip)
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, e| match e.id().as_ref() {
+            "show" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    TRAY_OK.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// true => English, false => Indonesian (from settings.json `lang`).
+fn language() -> bool {
+    read_settings()
+        .get("lang")
+        .and_then(|l| l.as_str())
+        .map(|l| l != "id")
+        .unwrap_or(true)
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let ctx: Arc<Ctx> = Arc::new(Ctx { tx: Mutex::new(None) });
             app.manage(ctx.clone());
+            // never let a tray/DE quirk take the whole app down
+            let tray = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_tray(app.handle())));
+            match tray {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("rdm-ui tray: {e}"),
+                Err(_) => eprintln!("rdm-ui tray: panicked; continuing without tray"),
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = run_socket(handle, ctx).await {
@@ -182,9 +278,20 @@ fn main() {
             });
             Ok(())
         })
+        // closing the window keeps RDM available in the tray; quit from there
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if TRAY_OK.load(std::sync::atomic::Ordering::Relaxed) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             list_jobs,
             add_url,
+            probe_url,
+            add_page,
             get_settings,
             set_settings,
             job_action,

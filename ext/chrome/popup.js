@@ -15,7 +15,7 @@ function fmt(n) {
 function render() {
   const box = el();
   if (!jobs.size) {
-    box.innerHTML = '<div class="empty">tidak ada job</div>';
+    box.innerHTML = '<div class="empty">no downloads</div>';
     return;
   }
   const rows = [...jobs.values()]
@@ -24,9 +24,9 @@ function render() {
       const pct = j.size ? Math.min(100, Math.round((j.done / j.size) * 100)) : 0;
       const cls = j.status === "completed" ? "done" : j.status === "failed" ? "failed" : "";
       const label =
-        j.status === "completed" ? "selesai" :
-        j.status === "failed" ? "gagal" :
-        j.status === "cancelled" ? "dibatalkan" :
+        j.status === "completed" ? "done" :
+        j.status === "failed" ? "failed" :
+        j.status === "cancelled" ? "cancelled" :
         j.status === "running" ? `${fmt(j.done)} / ${fmt(j.size)} · ${pct}%` : j.status;
       return `<div class="job ${cls}">
         <div class="row"><span class="name" title="${esc(j.filename)}">${esc(j.filename)}</span><span class="pct">${pct}%</span></div>
