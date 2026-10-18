@@ -97,11 +97,21 @@ fn open_path(path: String, folder: bool) -> Result<(), String> {
     if !target.exists() {
         return Err(if folder { "folder not found".into() } else { "file not found".into() });
     }
-    for (bin, args) in [
-        ("xdg-open", vec![target.to_string_lossy().to_string()]),
-        ("gio", vec!["open".into(), target.to_string_lossy().to_string()]),
-        ("kioclient", vec!["exec".into(), target.to_string_lossy().to_string()]),
-    ] {
+    let t = target.to_string_lossy().to_string();
+    // Plasma 6 ships `kioclient`; plain `xdg-open` can exit 0 without opening
+    // anything on this desktop, so it stays the last resort.
+    let kde = std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v.to_uppercase().contains("KDE"))
+        .unwrap_or(false)
+        || std::env::var("KDE_FULL_SESSION").is_ok();
+    let mut openers: Vec<(&str, Vec<String>)> = Vec::new();
+    if kde {
+        openers.push(("kioclient", vec!["exec".into(), t.clone()]));
+        openers.push(("kde-open", vec![t.clone()]));
+    }
+    openers.push(("gio", vec!["open".into(), t.clone()]));
+    openers.push(("xdg-open", vec![t.clone()]));
+    for (bin, args) in openers {
         match Command::new(bin)
             .args(&args)
             .stdin(Stdio::null())
