@@ -1,9 +1,11 @@
 #!/bin/sh
 # Install native messaging manifest for rdm-host.
-# Usage: ./install-host.sh <chrome-extension-id>
+# Usage: ./install-host.sh [extension-id]
+# Extension ID is stable (manifest.json carries a public "key"):
+#   enhihiehgiamccjmplnbpgjfbcglkaci
 set -e
 
-EXT_ID="${1:?usage: install-host.sh <chrome-extension-id>}"
+EXT_ID="${1:-enhihiehgiamccjmplnbpgjfbcglkaci}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOST_NAME="com.rdm.host"
 
