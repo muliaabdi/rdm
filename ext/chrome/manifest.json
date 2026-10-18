@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "RDM Integration",
-  "version": "0.1.0",
-  "description": "Kirim unduhan ke RDM (Rust Download Manager) lewat native host",
-  "permissions": ["nativeMessaging", "contextMenus", "cookies"],
+  "version": "0.2.0",
+  "description": "Intersepsi unduhan otomatis ke RDM (Rust Download Manager)",
+  "permissions": ["nativeMessaging", "contextMenus", "cookies", "webRequest", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
-  "action": { "title": "RDM" }
+  "action": { "default_title": "RDM", "default_popup": "popup.html" }
 }

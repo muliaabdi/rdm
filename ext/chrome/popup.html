@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  body { width: 340px; margin: 0; font: 13px/1.45 system-ui, sans-serif; background: #1e1f24; color: #e8eaed; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #3c4043; }
+  header b { font-size: 14px; }
+  header button { background: none; border: 1px solid #5f6368; color: #e8eaed; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+  #jobs { max-height: 380px; overflow-y: auto; }
+  .job { padding: 10px 14px; border-bottom: 1px solid #2b2d32; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pct { color: #9aa0a6; font-variant-numeric: tabular-nums; }
+  .bar { height: 4px; background: #3c4043; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: #1a73e8; width: 0; transition: width .2s; }
+  .st { margin-top: 4px; font-size: 11px; color: #9aa0a6; }
+  .done .bar > i { background: #34a853; }
+  .failed .bar > i { background: #ea4335; }
+  .empty { padding: 24px 14px; text-align: center; color: #9aa0a6; }
+  .err { color: #ea4335; }
+</style>
+</head>
+<body>
+<header><b>RDM</b><button id="refresh">Muat ulang</button></header>
+<div id="jobs"><div class="empty">tidak ada job</div></div>
+<script src="popup.js"></script>
+</body>
+</html>
