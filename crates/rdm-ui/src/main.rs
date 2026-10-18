@@ -148,6 +148,18 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
     }
 }
 
+#[tauri::command]
+fn diag(msg: String) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/opencode/ui-diag.log")
+    {
+        let _ = writeln!(f, "{msg}");
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -161,7 +173,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_jobs, add_url, get_settings, set_settings])
+        .invoke_handler(tauri::generate_handler![list_jobs, add_url, get_settings, set_settings, diag])
         .run(tauri::generate_context!())
         .expect("error while running rdm-ui");
 }

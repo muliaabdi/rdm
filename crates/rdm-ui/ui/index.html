@@ -55,12 +55,26 @@
 <div id="jobs"><div class="empty">tidak ada job</div></div>
 <div id="toast"></div>
 <script>
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+const $ = (id) => document.getElementById(id);
+const diag = (m) => window.__TAURI__?.core?.invoke("diag", { msg: m }).catch(() => {});
+window.addEventListener("error", (e) => {
+  $("conn").textContent = "JS error: " + e.message;
+  diag("onerror: " + e.message + " @ " + e.filename + ":" + e.lineno);
+});
+window.addEventListener("unhandledrejection", (e) => diag("rejection: " + e.reason));
+diag("boot: __TAURI__=" + (typeof window.__TAURI__));
 const jobs = new Map();
 let connected = false;
-
-const $ = (id) => document.getElementById(id);
+let invoke = async () => { throw new Error("TAURI IPC belum siap"); };
+let listen = async () => () => {};
+try {
+  invoke = window.__TAURI__.core.invoke;
+  listen = window.__TAURI__.event.listen;
+  diag("tauri api ok");
+} catch (e) {
+  diag("tauri api FAIL: " + e.message);
+  $("conn").textContent = "IPC gagal";
+}
 
 function fmt(n) {
   if (n == null) return "?";
@@ -122,9 +136,9 @@ listen("rdm", (ev) => {
     case "jobs":
       jobs.clear();
       for (const j of m.jobs || []) apply(j);
+      diag("got jobs n=" + (m.jobs || []).length);
       if (!connected) { connected = true; $("conn").textContent = "terhubung"; }
-      break;
-    case "accepted": apply({ id: m.id, status: "running" }); break;
+      break;    case "accepted": apply({ id: m.id, status: "running" }); break;
     case "started": apply({ id: m.id, size: m.size }); break;
     case "progress": apply({ id: m.id, done: m.done, size: m.size, status: "running" }); break;
     case "done": apply({ id: m.id, done: m.size, size: m.size, status: "completed" }); break;
