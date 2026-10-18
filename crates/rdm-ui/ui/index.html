@@ -116,7 +116,7 @@
 
   .row > .pcol { padding: 0 8px; }
   .cellbar {
-    position: relative; height: 7px; border-radius: 999px; overflow: hidden;
+    position: relative; height: 10px; border-radius: 999px; overflow: hidden;
     background: #eaeceb;
   }
   .cellbar > .fill {
@@ -129,12 +129,13 @@
   .dt-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; min-width: 0; }
   .dt-head .dt-name { font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
   .dt-head .dt-st { margin-left: auto; flex: none; font-size: 11px; }
-  .bigbar { position: relative; height: 10px; margin-bottom: 10px; overflow: hidden;
+  .barrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .bigbar { position: relative; flex: 1; height: 14px; overflow: hidden;
     background: var(--track); border-radius: 999px; }
   .bigbar > .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
     transition: width .45s linear, background-color .2s; }
-  .bigpct { position: absolute; right: 8px; top: -1px; font-size: 10px; color: #6a6f76;
-    font-variant-numeric: tabular-nums; text-shadow: 0 0 3px #fff, 0 0 2px #fff; }
+  .bigpct { flex: none; min-width: 48px; text-align: right; font-size: 11px; color: var(--dim);
+    font-variant-numeric: tabular-nums; }
   .errline { display: none; margin: 0 0 10px; color: var(--red); font-size: 11px;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
   .errline.on { display: block; }
@@ -745,7 +746,7 @@ function openDetails(id) {
       <div class="dt-name" id="dt-name"></div>
       <div class="dt-st st" id="dt-st"></div>
     </div>
-    <div class="bigbar"><div class="fill" id="dt-fill"></div><span class="bigpct" id="dt-pct"></span></div>
+    <div class="barrow"><div class="bigbar"><div class="fill" id="dt-fill"></div></div><span class="bigpct" id="dt-pct"></span></div>
     <div class="errline" id="dt-err"></div>
     <div class="dgrid">
       <div class="k">${t("col_file")}</div><div class="v" id="dt-file"></div>
@@ -804,7 +805,11 @@ function updateDetails() {
   $("dt-speed").textContent = j.status === "running" ? fmtSpeed(j.speed) : "—";
   $("dt-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
   const tog = $("dt-toggle");
-  if (tog) tog.textContent = j.status === "running" ? t("stop") : t("resume");
+  if (tog) {
+    const done = j.status === "completed";
+    tog.hidden = done; // nothing to resume on a finished download
+    if (!done) tog.textContent = j.status === "running" ? t("stop") : t("resume");
+  }
   paintGraph($("dt-graph"), detailSeries());
 }
 function renderStatus() {
