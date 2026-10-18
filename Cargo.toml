@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/rdm-core", "crates/rdm-cli"]
+members = ["crates/rdm-core", "crates/rdm-cli", "crates/rdm-daemon", "crates/rdm-host"]
 
 [workspace.package]
 version = "0.1.0"
@@ -20,3 +20,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum = "0.8"
 tower = "0.5"
+rusqlite = { version = "0.32", features = ["bundled"] }

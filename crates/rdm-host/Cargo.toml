@@ -1,0 +1,15 @@
+[package]
+name = "rdm-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "RDM native messaging host: browser stdio <-> rdm-daemon socket"
+
+[[bin]]
+name = "rdm-host"
+path = "src/main.rs"
+
+[dependencies]
+rdm-daemon = { path = "../rdm-daemon" }
+tokio = { workspace = true }
+anyhow = { workspace = true }

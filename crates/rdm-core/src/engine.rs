@@ -56,15 +56,24 @@ pub fn job_from_url(url: &str, out_dir: Option<PathBuf>, segments: u64, limits: 
     }
 }
 
-pub fn filename_from_url(url: &str) -> String {
-    let path = url.split('#').next().unwrap_or(url);
-    let path = path.split('?').next().unwrap_or(path);
-    let name = path.rsplit('/').find(|s| !s.is_empty()).unwrap_or("download");
+pub fn sanitize_filename(name: &str) -> String {
     let clean: String = name
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '(' | ')' | ' ') { c } else { '_' })
         .collect();
-    clean.chars().take(180).collect::<String>().trim().to_string()
+    let trimmed = clean.trim();
+    if trimmed.is_empty() {
+        "download".to_string()
+    } else {
+        trimmed.chars().take(180).collect()
+    }
+}
+
+pub fn filename_from_url(url: &str) -> String {
+    let path = url.split('#').next().unwrap_or(url);
+    let path = path.split('?').next().unwrap_or(path);
+    let name = path.rsplit('/').find(|s| !s.is_empty()).unwrap_or("download");
+    sanitize_filename(name)
 }
 
 fn state_path(out: &std::path::Path) -> PathBuf {
