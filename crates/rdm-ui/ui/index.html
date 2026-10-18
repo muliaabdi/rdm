@@ -256,17 +256,7 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 3.5V8h-4.5"/></svg>
     <span data-i18n="restart">Restart</span>
   </button>
-  <div class="tsep"></div>
-  <button type="button" class="tbtn" id="b-details" disabled data-i18n-title="details_title">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-7m5 7V6m5 14v-10m5 10V9"/></svg>
-    <span data-i18n="details">Details</span>
-  </button>
   <div id="spacer"></div>
-  <button type="button" class="tbtn" id="b-lang" data-i18n-title="tt_lang">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18"/></svg>
-    <span id="lang-label">EN</span>
-  </button>
-  <div class="tsep"></div>
   <button type="button" class="tbtn" id="b-options" data-i18n-title="settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3m0 13v3M2.5 12h3m13 0h3M5.3 5.3l2.1 2.1m9.2 9.2l2.1 2.1m0-13.4l-2.1 2.1m-9.2 9.2l-2.1 2.1"/></svg>
     <span data-i18n="settings">Settings</span>
@@ -419,7 +409,6 @@ function trErr(e) {
 
 async function setLang(next) {
   lang = next === "id" ? "id" : "en";
-  $("lang-label").textContent = lang.toUpperCase();
   applyI18n();
   try {
     const s = (await invoke("get_settings")) || {};
@@ -427,8 +416,6 @@ async function setLang(next) {
     await invoke("set_settings", { v: s });
   } catch (e) { diag("lang persist: " + e); }
 }
-
-$("b-lang").onclick = () => setLang(lang === "en" ? "id" : "en");
 
 /* ---------- state ---------- */
 const jobs = new Map();          // id -> job {id,url,filename,out_path,size,done,status,error,segs,speed}
@@ -551,6 +538,7 @@ function rowHtml(j) {
   const fillColor = j.status === "failed" ? "#d9534f"
     : j.status === "paused" ? "#d99a2b"
     : j.status === "confirming" ? "transparent"
+    : j.status === "completed" ? "#b9dfbb"
     : "linear-gradient(90deg,#5fc066,#3d9c44)";
   const w = j.status === "completed" ? 100 : pct;
   const tip = esc(j.filename + (j.error ? ` — ${j.error}` : ""));
@@ -695,7 +683,6 @@ function updateToolbar() {
   $("b-stop").toggleAttribute("disabled", !(j && j.status === "running"));
   $("b-restart").toggleAttribute("disabled", !(j && j.status !== "running"));
   $("b-delete").toggleAttribute("disabled", !j);
-  $("b-details").toggleAttribute("disabled", !j);
 }
 function statusLabel(j) {
   const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
@@ -789,7 +776,8 @@ function updateDetails() {
   fill.style.background =
     j.segs && j.status === "running" ? segGradient(j.segs, j.size) :
     j.status === "failed" ? "#d9534f" :
-    j.status === "paused" ? "#d99a2b" : "#57b85c";
+    j.status === "paused" ? "#d99a2b" :
+    j.status === "completed" ? "#b9dfbb" : "#57b85c";
   $("dt-pct").textContent = j.size ? Math.round(pct) + " %" : "";
   const err = $("dt-err");
   if (j.error && (j.status === "failed" || j.status === "cancelled")) {
@@ -1030,7 +1018,8 @@ $("b-resume").onclick = () => selected && invoke("job_action", { action: "resume
 $("b-stop").onclick = () => selected && invoke("job_action", { action: "pause", id: selected }).catch((e) => alert(trErr(e)));
 $("b-delete").onclick = () => selected && invoke("job_action", { action: "delete", id: selected }).catch((e) => alert(trErr(e)));
 $("b-restart").onclick = () => selected && invoke("job_action", { action: "restart", id: selected }).catch((e) => alert(trErr(e)));
-$("b-details").onclick = () => selected != null && openDetails(selected);
+// Details opens by double-click, Enter or the row context menu
+$("rows").addEventListener("keydown", (e) => e.key === "Enter" && document.activeElement.classList.contains("row") && openDetails(+document.activeElement.dataset.id));
 
 $("b-options").onclick = async () => {
   const s = await invoke("get_settings");
@@ -1062,7 +1051,6 @@ $("b-options").onclick = async () => {
     const s = await invoke("get_settings");
     if (s && s.lang === "id") lang = "id";
   } catch (e) { diag("lang load: " + e); }
-  $("lang-label").textContent = lang.toUpperCase();
   applyI18n();
 })();
 
