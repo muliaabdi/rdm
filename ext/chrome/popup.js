@@ -75,6 +75,10 @@ function connect() {
   port.postMessage({ t: "list" });
 }
 
+const interceptEl = document.getElementById("intercept");
+chrome.storage.local.get({ intercept: true }, (s) => (interceptEl.checked = !!s.intercept));
+interceptEl.onchange = () => chrome.storage.local.set({ intercept: interceptEl.checked });
+
 document.getElementById("refresh").onclick = () => {
   if (port) port.postMessage({ t: "list" });
 };

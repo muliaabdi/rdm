@@ -23,7 +23,14 @@
 </style>
 </head>
 <body>
-<header><b>RDM</b><button id="refresh">Muat ulang</button></header>
+<header>
+  <b>RDM</b>
+  <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+    <span>takeover</span>
+    <input type="checkbox" id="intercept" style="accent-color:#1a73e8" />
+  </label>
+  <button id="refresh">Muat ulang</button>
+</header>
 <div id="jobs"><div class="empty">tidak ada job</div></div>
 <script src="popup.js"></script>
 </body>

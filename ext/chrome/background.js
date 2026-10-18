@@ -6,6 +6,12 @@ const MIN_SIZE = 1024 * 1024;
 const SEEN_TTL = 10 * 60 * 1000;
 
 let port = null;
+let intercept = true; // takeover: cancel native downloads, route to RDM
+
+chrome.storage.local.get({ intercept: true }, (s) => (intercept = !!s.intercept));
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area === "local" && ch.intercept) intercept = !!ch.intercept.newValue;
+});
 
 function ensurePort() {
   if (!port) {
@@ -86,6 +92,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ---- interception: response header heuristics ----
 
 const CANDIDATE_TYPE = /^(video\/|audio\/|application\/(zip|x-rar-compressed|x-7z-compressed|octet-stream|x-iso9660-image|pdf))/i;
+// Types Chrome will NOT render inline: navigation to these always becomes a
+// native download, which takeover handles. Inline-renderable (video/audio/pdf)
+// still gets the floating button.
+const NON_RENDERABLE = /^application\/(zip|x-rar-compressed|x-7z-compressed|octet-stream|x-iso9660-image)/i;
 
 const seen = new Map(); // url -> ts
 
@@ -115,6 +125,9 @@ chrome.webRequest.onHeadersReceived.addListener(
         if (!CANDIDATE_TYPE.test(ct)) return;
         if (len > 0 && len < MIN_SIZE) return;
       }
+      // With takeover enabled, downloads Chrome will start natively are routed
+      // via downloads.onCreated instead - no button needed for those.
+      if (intercept && (attachment || NON_RENDERABLE.test(ct))) return;
       if (seenRecently(details.url)) return;
 
       const name = cdFilename(cd) || nameFromUrl(details.url);
@@ -126,6 +139,27 @@ chrome.webRequest.onHeadersReceived.addListener(
   { urls: ["<all_urls>"], types: ["main_frame", "sub_frame", "xmlhttprequest", "media", "other"] },
   ["responseHeaders"]
 );
+
+// ---- takeover: cancel native download, route to RDM ----
+
+chrome.downloads.onCreated.addListener(async (item) => {
+  try {
+    if (!intercept) return;
+    if (item.state === "complete") return; // finished before we saw it
+    const url = item.finalUrl || item.url;
+    if (!/^https?:/i.test(url)) return;
+    if (url.startsWith("blob:") || url.startsWith("data:")) return;
+
+    await chrome.downloads.cancel(item.id).catch(() => {});
+    await chrome.downloads.erase({ id: item.id }).catch(() => {});
+
+    const name = (item.filename || "").split(/[\\/]/).pop() || nameFromUrl(url);
+    console.log("rdm: takeover", name);
+    await offer(url, name, item.referrer || "");
+  } catch (e) {
+    console.warn("rdm: takeover failed", e);
+  }
+});
 
 // ---- floating button injection ----
 

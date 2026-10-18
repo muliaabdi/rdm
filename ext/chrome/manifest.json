@@ -3,7 +3,7 @@
   "name": "RDM Integration",
   "version": "0.2.0",
   "description": "Intersepsi unduhan otomatis ke RDM (Rust Download Manager)",
-  "permissions": ["nativeMessaging", "contextMenus", "cookies", "webRequest", "scripting", "tabs"],
+  "permissions": ["nativeMessaging", "contextMenus", "cookies", "webRequest", "scripting", "tabs", "downloads", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": { "default_title": "RDM", "default_popup": "popup.html" }
