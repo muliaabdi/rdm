@@ -2,180 +2,506 @@
 <html>
 <head>
 <meta charset="utf-8" />
+<title>RDM</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #1e1f24; color: #e8eaed; }
-  header { display: flex; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #3c4043; }
-  header input[type=text] { flex: 1; background: #2b2d32; border: 1px solid #3c4043; color: #e8eaed;
-    border-radius: 8px; padding: 8px 10px; font: inherit; outline: none; }
-  header button { background: #1a73e8; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px;
-    font: inherit; cursor: pointer; }
-  header button:hover { filter: brightness(1.1); }
-  #bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; color: #9aa0a6; font-size: 12px; }
-  #bar button { background: none; border: 1px solid #5f6368; color: #9aa0a6; border-radius: 6px;
-    padding: 3px 10px; cursor: pointer; font-size: 12px; }
-  #settings { display: none; padding: 10px 14px; border-bottom: 1px solid #3c4043; gap: 8px; }
-  #settings.open { display: flex; }
-  #settings input { background: #2b2d32; border: 1px solid #3c4043; color: #e8eaed; border-radius: 6px;
-    padding: 6px 8px; font: inherit; }
-  #settings input#seg { width: 64px; }
-  #settings input#dir { flex: 1; }
-  #jobs { overflow-y: auto; max-height: calc(100vh - 132px); }
-  .job { padding: 10px 14px; border-bottom: 1px solid #2b2d32; }
-  .row { display: flex; justify-content: space-between; gap: 8px; }
-  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
-  .pct { color: #9aa0a6; font-variant-numeric: tabular-nums; }
-  .bar { height: 5px; background: #3c4043; border-radius: 3px; margin-top: 6px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; background: #1a73e8; width: 0; transition: width .2s; }
-  .st { margin-top: 4px; font-size: 12px; color: #9aa0a6; }
-  .done .bar > i { background: #34a853; }
-  .failed .bar > i { background: #ea4335; }
-  .empty { padding: 32px 14px; text-align: center; color: #9aa0a6; }
-  .err { color: #ea4335; }
-  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #3c4043;
-    padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
-  #toast.show { opacity: 1; }
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; user-select: none; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font: 12px/1.4 "Segoe UI", Tahoma, sans-serif; color: #1a1a1a;
+    background: #ece9d8; display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ---- toolbar ---- */
+  #toolbar {
+    display: flex; align-items: center; gap: 2px; padding: 4px 6px;
+    background: linear-gradient(#fbfaf6, #e7e4d6);
+    border-bottom: 1px solid #aca899;
+  }
+  .tbtn {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 58px; padding: 4px 6px 3px; border: 1px solid transparent;
+    border-radius: 3px; cursor: pointer; color: #2c2c2c;
+  }
+  .tbtn:hover { border-color: #b6b3a5; background: linear-gradient(#fff, #f1efe4); }
+  .tbtn:active { background: #ddd9c8; }
+  .tbtn[disabled] { opacity: .4; pointer-events: none; }
+  .tbtn svg { width: 20px; height: 20px; }
+  .tbtn span { font-size: 11px; }
+  #spacer { flex: 1; }
+
+  /* ---- main split ---- */
+  #main { flex: 1; display: flex; min-height: 0; }
+
+  /* ---- categories ---- */
+  #cats {
+    width: 150px; flex: none; background: #fff; border-right: 1px solid #aca899;
+    padding: 6px 0; overflow-y: auto;
+  }
+  #cats h3 {
+    margin: 0; padding: 3px 10px 6px; font-size: 12px; color: #444;
+    border-bottom: 1px solid #e0ddce; margin-bottom: 4px;
+  }
+  .cat {
+    display: flex; align-items: center; gap: 7px; padding: 4px 10px; cursor: pointer;
+  }
+  .cat:hover { background: #f3f1e6; }
+  .cat.sel { background: #316ac5; color: #fff; }
+  .cat .ic { width: 14px; height: 14px; border-radius: 2px; flex: none; }
+  .cat .cnt { margin-left: auto; font-size: 11px; color: #888; }
+  .cat.sel .cnt { color: #dbe6f7; }
+
+  /* ---- table ---- */
+  #listwrap { flex: 1; min-width: 0; background: #fff; display: flex; flex-direction: column; }
+  #head, .row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 78px minmax(120px, 1.2fr) 86px 78px 78px;
+    gap: 0; padding: 0 4px 0 0;
+  }
+  #head {
+    background: linear-gradient(#f6f4ec, #e6e3d6);
+    border-bottom: 1px solid #aca899; font-weight: 600; color: #3a3a3a;
+  }
+  #head div { padding: 4px 6px; border-right: 1px solid #d8d5c6; }
+  #rows { flex: 1; overflow-y: auto; }
+  .row {
+    height: 26px; align-items: center; border-bottom: 1px solid #f0eee4; cursor: default;
+    padding-right: 0;
+  }
+  .row:hover { background: #f2f7fd; }
+  .row.sel { background: #316ac5 !important; color: #fff; }
+  .row.sel .st, .row.sel .dim { color: #dbe6f7; }
+  .row .name {
+    display: flex; align-items: center; gap: 6px; padding: 0 6px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .fico { width: 14px; height: 14px; flex: none; border-radius: 2px; display: flex;
+    align-items: center; justify-content: center; font: bold 8px/1 sans-serif; color: #fff; }
+  .row > div { padding: 0 6px; overflow: hidden; white-space: nowrap; }
+  .num, .st, .dim { text-align: right; font-variant-numeric: tabular-nums; }
+  .st { text-align: right; }
+  .st.running { color: #1a7a1f; } .row.sel .st.running { color: #9fe0a3; }
+  .st.paused { color: #b06000; } .row.sel .st.paused { color: #ffd9a0; }
+  .st.failed { color: #c00; } .row.sel .st.failed { color: #ffb3b3; }
+  .st.completed { color: #0a5d0e; } .row.sel .st.completed { color: #9fe0a3; }
+
+  .cellbar { position: relative; height: 14px; margin: 0 6px; background: #e6e4da;
+    border: 1px solid #c9c6b8; border-radius: 2px; overflow: hidden; }
+  .cellbar > .fill { position: absolute; inset: 0; width: 0; }
+  .row .pct { width: 78px; }
+
+  /* ---- bottom panel ---- */
+  #bottom {
+    height: 118px; flex: none; display: flex; border-top: 1px solid #aca899; background: #fff;
+  }
+  #binfo { flex: 1.4; min-width: 0; padding: 8px 12px; }
+  #binfo .fname { font-weight: 600; margin-bottom: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #bigbar { position: relative; height: 18px; background: #e6e4da; border: 1px solid #c9c6b8;
+    border-radius: 2px; overflow: hidden; margin-bottom: 8px; }
+  #bigbar > .fill { position: absolute; inset: 0; width: 0; }
+  .bgrid { display: grid; grid-template-columns: 92px 1fr 92px 1fr; gap: 2px 8px; font-size: 11px; }
+  .bgrid .k { color: #777; }
+  .bgrid .v { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #bgraph { flex: 1; border-left: 1px solid #aca899; padding: 8px 12px; min-width: 0; }
+  #bgraph h4 { margin: 0 0 6px; font-size: 11px; color: #555; font-weight: 600; }
+  #graph { width: 100%; height: 66px; border: 1px solid #d5d2c4; background: #fff; }
+
+  /* ---- status bar ---- */
+  #status {
+    height: 22px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 10px;
+    background: linear-gradient(#f4f2e8, #e3e0d2); border-top: 1px solid #b7b3a2; font-size: 11px; color: #444;
+  }
+
+  /* ---- modal ---- */
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.25); display: none;
+    align-items: center; justify-content: center; }
+  #modal.open { display: flex; }
+  #dlg { width: 380px; background: #ece9d8; border: 1px solid #7a7768; border-radius: 4px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.3); padding: 14px; }
+  #dlg h3 { margin: 0 0 10px; font-size: 13px; }
+  #dlg input { width: 100%; padding: 6px 8px; border: 1px solid #aca899; border-radius: 2px;
+    font: inherit; background: #fff; margin-bottom: 10px; }
+  #dlg .btns { display: flex; justify-content: flex-end; gap: 8px; }
+  #dlg button { padding: 5px 16px; font: inherit; border: 1px solid #7a7768; border-radius: 3px;
+    background: linear-gradient(#fff, #e3e0d3); cursor: pointer; }
+  #dlg button.pri { border-color: #27509b; color: #fff; background: linear-gradient(#5f8ee0, #3a6ec2); }
+
+  .empty { padding: 30px; text-align: center; color: #999; grid-column: 1 / -1; }
+  #settings-dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  #settings-dlg .fld label { width: 90px; color: #444; }
+  #settings-dlg .fld input { flex: 1; margin: 0; }
 </style>
 </head>
 <body>
-<header>
-  <input type="text" id="url" placeholder="Tempel URL unduhan…" />
-  <button id="add">Unduh</button>
-</header>
-<div id="bar">
-  <span id="conn">menghubungkan…</span>
-  <button id="cfg">Pengaturan</button>
+
+<div id="toolbar">
+  <div class="tbtn" id="b-add">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#2c6ba8" stroke-width="2"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16"/></svg>
+    <span>Tambah URL</span>
+  </div>
+  <div class="tbtn" id="b-resume" disabled>
+    <svg viewBox="0 0 24 24" fill="#1a7a1f"><path d="M7 4l13 8-13 8z"/></svg>
+    <span>Lanjutkan</span>
+  </div>
+  <div class="tbtn" id="b-stop" disabled>
+    <svg viewBox="0 0 24 24" fill="#c22"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+    <span>Stop</span>
+  </div>
+  <div class="tbtn" id="b-delete" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="#a33" stroke-width="2"><path d="M4 7h16M9 7V4h6v3m-9 0l1 13h10l1-13"/></svg>
+    <span>Hapus</span>
+  </div>
+  <div class="tbtn" id="b-restart" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 3v5h-5"/></svg>
+    <span>Ulangi</span>
+  </div>
+  <div id="spacer"></div>
+  <div class="tbtn" id="b-options">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9l2.1 2.1m10 10l2.1 2.1m0-14.2l-2.1 2.1m-10 10l-2.1 2.1"/></svg>
+    <span>Pengaturan</span>
+  </div>
 </div>
-<div id="settings">
-  <input type="text" id="dir" placeholder="Folder simpan (default ~/Downloads)" />
-  <input type="number" id="seg" min="1" max="32" value="8" title="Jumlah segmen" />
-  <button id="save">Simpan</button>
+
+<div id="main">
+  <div id="cats">
+    <h3>Unduhan</h3>
+    <div id="catlist"></div>
+  </div>
+  <div id="listwrap">
+    <div id="head">
+      <div>Nama</div><div class="num">Ukuran</div><div>Progres</div>
+      <div class="st">Status</div><div class="num">Sisa waktu</div><div class="num">Kecepatan</div>
+    </div>
+    <div id="rows"></div>
+  </div>
 </div>
-<div id="jobs"><div class="empty">tidak ada job</div></div>
-<div id="toast"></div>
+
+<div id="bottom">
+  <div id="binfo">
+    <div class="fname" id="d-name">Tidak ada unduhan dipilih</div>
+    <div id="bigbar"><div class="fill"></div></div>
+    <div class="bgrid">
+      <div class="k">Berkas</div><div class="v" id="d-file">-</div>
+      <div class="k">Kategori</div><div class="v" id="d-cat">-</div>
+      <div class="k">Ukuran</div><div class="v" id="d-size">-</div>
+      <div class="k">Terunduh</div><div class="v" id="d-done">-</div>
+      <div class="k">Kecepatan</div><div class="v" id="d-speed">-</div>
+      <div class="k">Perkiraan</div><div class="v" id="d-eta">-</div>
+    </div>
+  </div>
+  <div id="bgraph">
+    <h4>Grafik kecepatan</h4>
+    <canvas id="graph" width="360" height="66"></canvas>
+  </div>
+</div>
+
+<div id="status">
+  <span id="s-items">0 item</span>
+  <span id="s-speed">0 B/s total</span>
+  <span id="s-conn" style="margin-left:auto">menghubungkan…</span>
+</div>
+
+<div id="modal"><div id="dlg"></div></div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const diag = (m) => window.__TAURI__?.core?.invoke("diag", { msg: m }).catch(() => {});
-window.addEventListener("error", (e) => {
-  $("conn").textContent = "JS error: " + e.message;
-  diag("onerror: " + e.message + " @ " + e.filename + ":" + e.lineno);
-});
-window.addEventListener("unhandledrejection", (e) => diag("rejection: " + e.reason));
-diag("boot: __TAURI__=" + (typeof window.__TAURI__));
-const jobs = new Map();
-let connected = false;
-let invoke = async () => { throw new Error("TAURI IPC belum siap"); };
+window.addEventListener("error", (e) => diag("onerror: " + e.message));
+let invoke = async () => { throw new Error("IPC belum siap"); };
 let listen = async () => () => {};
 try {
   invoke = window.__TAURI__.core.invoke;
   listen = window.__TAURI__.event.listen;
-  diag("tauri api ok");
-} catch (e) {
-  diag("tauri api FAIL: " + e.message);
-  $("conn").textContent = "IPC gagal";
+  diag("boot ok");
+} catch (e) { diag("ipc fail " + e.message); }
+
+/* ---------- state ---------- */
+const jobs = new Map();          // id -> job {id,url,filename,out_path,size,done,status,error,segs,speed}
+const speeds = new Map();        // id -> [{t,done}]
+let selected = null;
+let cat = "all";
+let connected = false;
+const totalHist = [];            // [{t,v}] total speed history
+let detailSeen = false;
+
+const CATS = [
+  ["all", "Semua", "#5a7fbf"],
+  ["compressed", "Terkompresi", "#c9962e"],
+  ["documents", "Dokumen", "#3f9dbd"],
+  ["music", "Musik", "#b05bb0"],
+  ["video", "Video", "#d05050"],
+  ["programs", "Program", "#5d5d5d"],
+  ["other", "Lainnya", "#888"],
+];
+const EXT = {
+  compressed: ["zip","rar","7z","tar","gz","bz2","xz","iso"],
+  documents: ["pdf","doc","docx","xls","xlsx","ppt","pptx","txt","md","epub"],
+  music: ["mp3","flac","wav","ogg","m4a","aac","opus"],
+  video: ["mp4","mkv","avi","webm","mov","flv","m4v","ts","m4s"],
+  programs: ["exe","msi","deb","rpm","appimage","apk","bin","dmg"],
+};
+function catOf(j) {
+  const m = /\.([a-z0-9]+)$/i.exec(j.filename || "");
+  const e = m ? m[1].toLowerCase() : "";
+  for (const [k, list] of Object.entries(EXT)) if (list.includes(e)) return k;
+  return "other";
 }
 
+/* ---------- helpers ---------- */
 function fmt(n) {
   if (n == null) return "?";
-  if (n >= 1 << 30) return (n / (1 << 30)).toFixed(1) + " GB";
-  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + " MB";
-  if (n >= 1 << 10) return (n / (1 << 10)).toFixed(0) + " KB";
-  return n + " B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i === 0 ? n : n.toFixed(n >= 100 ? 0 : 1)) + " " + u[i];
 }
-
+function fmtSpeed(bps) {
+  if (!bps || bps < 1) return "0 B/s";
+  return fmt(bps) + "/s";
+}
+function fmtEta(sec) {
+  if (sec == null || !isFinite(sec) || sec < 0) return "∞";
+  if (sec < 60) return Math.ceil(sec) + "s";
+  if (sec < 3600) return Math.floor(sec / 60) + "m " + Math.ceil(sec % 60) + "s";
+  return Math.floor(sec / 3600) + "j " + Math.ceil((sec % 3600) / 60) + "m";
+}
 function esc(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
+function segGradient(segs, size) {
+  // IDM-style alternating green stripes per completed segment
+  if (!segs || !size) return "linear-gradient(90deg,#57b85c 0%,#57b85c 0%)";
+  const full = "#57b85c", alt = "#3f9d46";
+  const parts = [];
+  segs.forEach((s, i) => {
+    const a = (s.start / size) * 100, b = (s.done / Math.max(1, s.end - s.start + 1)) * 100;
+    const c = i % 2 ? alt : full;
+    if (b > 0) parts.push(`${c} ${a.toFixed(2)}%`, `${c} ${(a + ((b / 100) * ((s.end - s.start + 1) / size) * 100)).toFixed(2)}%`);
+  });
+  if (!parts.length) parts.push("transparent 0%", "transparent 0%");
+  return `linear-gradient(90deg,${parts.join(",")})`;
+}
+function icoFor(j) {
+  const k = catOf(j);
+  const col = Object.fromEntries(CATS.map(([id, , c]) => [id, c]))[k] || "#888";
+  const ch = { compressed: "Z", documents: "D", music: "♪", video: "▶", programs: "P", other: "?" }[k];
+  return `<span class="fico" style="background:${col}">${ch}</span>`;
+}
 
-function render() {
-  const box = $("jobs");
-  if (!jobs.size) {
-    box.innerHTML = '<div class="empty">tidak ada job</div>';
+/* ---------- speed sampling ---------- */
+function sampleSpeed(id, done) {
+  const now = performance.now();
+  let h = speeds.get(id);
+  if (!h) { h = []; speeds.set(id, h); }
+  h.push({ t: now, done });
+  while (h.length > 2 && now - h[0].t > 6000) h.shift();
+  if (h.length < 2) return 0;
+  const a = h[0], b = h[h.length - 1];
+  const dt = (b.t - a.t) / 1000;
+  if (dt < 0.3) return 0;
+  return Math.max(0, (b.done - a.done) / dt);
+}
+
+/* ---------- render ---------- */
+function visible() {
+  return [...jobs.values()]
+    .filter((j) => cat === "all" || catOf(j) === cat)
+    .sort((a, b) => b.id - a.id);
+}
+function renderCats() {
+  const counts = { all: jobs.size };
+  for (const j of jobs.values()) { const k = catOf(j); counts[k] = (counts[k] || 0) + 1; }
+  $("catlist").innerHTML = CATS.map(([id, label, col]) =>
+    `<div class="cat ${cat === id ? "sel" : ""}" data-cat="${id}">
+      <span class="ic" style="background:${col}"></span>${label}
+      <span class="cnt">${counts[id] || 0}</span></div>`).join("");
+  document.querySelectorAll(".cat").forEach((el) =>
+    (el.onclick = () => { cat = el.dataset.cat; renderCats(); renderRows(); }));
+}
+function etaOf(j) {
+  if (j.status !== "running" || !j.size || !j.speed) return null;
+  return (j.size - j.done) / j.speed;
+}
+function renderRows() {
+  const rows = visible();
+  const box = $("rows");
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty">Tidak ada unduhan dalam kategori ini</div>';
+    updateToolbar(); renderBottom(); renderStatus();
     return;
   }
-  box.innerHTML = [...jobs.values()]
-    .sort((a, b) => b.id - a.id)
-    .map((j) => {
-      const pct = j.size ? Math.min(100, Math.round((j.done / j.size) * 100)) : 0;
-      const cls = j.status === "completed" ? "done" : j.status === "failed" ? "failed" : "";
-      const label =
-        j.status === "completed" ? "selesai" :
-        j.status === "failed" ? "gagal" :
-        j.status === "cancelled" ? "dibatalkan" :
-        j.status === "running" ? `${fmt(j.done)} / ${fmt(j.size)} · ${pct}%` : j.status;
-      return `<div class="job ${cls}">
-        <div class="row"><span class="name" title="${esc(j.out_path || j.filename)}">${esc(j.filename)}</span><span class="pct">${pct}%</span></div>
-        <div class="bar"><i style="width:${pct}%"></i></div>
-        <div class="st">${label}${j.error ? ` · <span class="err">${esc(j.error)}</span>` : ""}</div>
-      </div>`;
-    })
-    .join("");
+  box.innerHTML = rows.map((j) => {
+    const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
+    const label =
+      j.status === "completed" ? "Selesai" :
+      j.status === "failed" ? "Gagal" :
+      j.status === "paused" ? "Dijeda" :
+      j.status === "cancelled" ? "Dibatalkan" :
+      j.status === "running" ? Math.round(pct) + " %" : j.status;
+    const g = j.status === "failed"
+      ? "linear-gradient(90deg,#d9534f " + pct + "%,#e6e4da " + pct + "%)"
+      : `linear-gradient(90deg,#57b85c ${pct}%,#e6e4da ${pct}%)`;
+    const grad = j.segs && j.status === "running" ? segGradient(j.segs, j.size) : g;
+    return `<div class="row ${selected === j.id ? "sel" : ""}" data-id="${j.id}">
+      <div class="name">${icoFor(j)}${esc(j.filename)}</div>
+      <div class="num dim">${j.size ? fmt(j.size) : "?"}</div>
+      <div><div class="cellbar"><div class="fill" style="width:100%;background:${grad}"></div></div></div>
+      <div class="st ${j.status}">${label}</div>
+      <div class="num dim">${j.status === "running" ? fmtEta(etaOf(j)) : "—"}</div>
+      <div class="num dim">${j.status === "running" ? fmtSpeed(j.speed) : "—"}</div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll(".row").forEach((el) =>
+    (el.onclick = () => { selected = +el.dataset.id; renderRows(); }));
+  updateToolbar(); renderBottom(); renderStatus();
 }
-
-function apply(v) {
-  const j = jobs.get(v.id) || { id: v.id, filename: "?", done: 0, size: null, status: "running" };
-  for (const k of ["filename", "out_path", "size", "done", "status", "error"]) {
-    if (v[k] != null) j[k] = v[k];
+function updateToolbar() {
+  const j = jobs.get(selected);
+  $("b-resume").toggleAttribute("disabled", !(j && ["paused", "failed", "cancelled"].includes(j.status)));
+  $("b-stop").toggleAttribute("disabled", !(j && j.status === "running"));
+  $("b-restart").toggleAttribute("disabled", !(j && j.status !== "running"));
+  $("b-delete").toggleAttribute("disabled", !j);
+}
+function renderBottom() {
+  const j = jobs.get(selected);
+  if (!j) {
+    $("d-name").textContent = "Tidak ada unduhan dipilih";
+    $("bigbar").firstElementChild.style.width = "0";
+    for (const id of ["d-file", "d-cat", "d-size", "d-done", "d-speed", "d-eta"]) $(id).textContent = "-";
+    return;
   }
+  const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
+  $("d-name").textContent = j.filename;
+  const fill = $("bigbar").firstElementChild;
+  fill.style.width = pct + "%";
+  fill.style.background = j.segs && j.status === "running" ? segGradient(j.segs, j.size) : "#57b85c";
+  $("d-file").textContent = j.out_path || "-";
+  $("d-cat").textContent = CATS.find(([id]) => id === catOf(j))[1];
+  $("d-size").textContent = j.size ? fmt(j.size) : "?";
+  $("d-done").textContent = fmt(j.done);
+  $("d-speed").textContent = j.status === "running" ? fmtSpeed(j.speed) : "—";
+  $("d-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
+}
+function renderStatus() {
+  const running = [...jobs.values()].filter((j) => j.status === "running");
+  const tot = running.reduce((a, j) => a + (j.speed || 0), 0);
+  $("s-items").textContent = jobs.size + " item · " + running.length + " aktif";
+  $("s-speed").textContent = fmtSpeed(tot) + " total";
+}
+
+/* ---------- graph ---------- */
+const gctx = $("graph").getContext("2d");
+function drawGraph() {
+  const w = $("graph").width, h = $("graph").height;
+  gctx.clearRect(0, 0, w, h);
+  const max = Math.max(1024, ...totalHist.map((p) => p.v)) * 1.15;
+  gctx.strokeStyle = "#e4e1d3";
+  for (let x = 0; x < w; x += 30) { gctx.beginPath(); gctx.moveTo(x, 0); gctx.lineTo(x, h); gctx.stroke(); }
+  for (let y = 0; y < h; y += 16) { gctx.beginPath(); gctx.moveTo(0, y); gctx.lineTo(w, y); gctx.stroke(); }
+  if (totalHist.length > 1) {
+    gctx.beginPath();
+    totalHist.forEach((p, i) => {
+      const x = (i / (totalHist.length - 1)) * w;
+      const y = h - (p.v / max) * (h - 4) - 2;
+      i ? gctx.lineTo(x, y) : gctx.moveTo(x, y);
+    });
+    gctx.lineTo(w, h); gctx.lineTo(0, h); gctx.closePath();
+    gctx.fillStyle = "rgba(87,184,92,.35)";
+    gctx.fill();
+    gctx.strokeStyle = "#2e8b30"; gctx.lineWidth = 1.5; gctx.stroke();
+  }
+  gctx.fillStyle = "#888";
+  gctx.font = "10px sans-serif";
+  gctx.fillText(fmt(max) + "/s", 4, 10);
+}
+
+/* ---------- events from daemon ---------- */
+function apply(v) {
+  const j = jobs.get(v.id) || { id: v.id, filename: "?", done: 0, size: null, status: "running", speed: 0 };
+  let rebuild = false;
+  for (const k of ["filename", "out_path", "size", "done", "status", "error"]) {
+    if (v[k] != null && j[k] !== v[k]) { j[k] = v[k]; if (k === "status") rebuild = true; }
+  }
+  if (v.segments) j.segs = v.segments;
+  j.speed = j.status === "running" ? sampleSpeed(v.id, j.done) : (speeds.delete(v.id), 0);
   jobs.set(v.id, j);
-  render();
+  renderCats(); renderRows();
 }
-
-function toast(msg) {
-  const t = $("toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 1800);
-}
-
 listen("rdm", (ev) => {
   const m = ev.payload;
   switch (m.t) {
-    case "disconnected": connected = false; $("conn").textContent = "terputus…"; break;
+    case "disconnected": connected = false; $("s-conn").textContent = "terputus…"; break;
     case "jobs":
-      jobs.clear();
+      if (!connected) { connected = true; diag("jobs n=" + (m.jobs || []).length); $("s-conn").textContent = "terhubung"; }
+      const seen = new Set((m.jobs || []).map((x) => x.id));
+      for (const id of [...jobs.keys()]) if (!seen.has(id)) { jobs.delete(id); speeds.delete(id); }
       for (const j of m.jobs || []) apply(j);
-      diag("got jobs n=" + (m.jobs || []).length);
-      if (!connected) { connected = true; $("conn").textContent = "terhubung"; }
-      break;    case "accepted": apply({ id: m.id, status: "running" }); break;
+      break;
+    case "accepted": apply({ id: m.id, status: "running", done: 0 }); selected = m.id; break;
     case "started": apply({ id: m.id, size: m.size }); break;
     case "progress": apply({ id: m.id, done: m.done, size: m.size, status: "running" }); break;
+    case "detail":
+      if (!detailSeen) { detailSeen = true; diag("detail segmen diterima"); }
+      apply({ id: m.id, segments: m.segments, status: "running" });
+      break;
     case "done": apply({ id: m.id, done: m.size, size: m.size, status: "completed" }); break;
     case "failed": apply({ id: m.id, status: "failed", error: m.error }); break;
+    case "paused": apply({ id: m.id, status: "paused" }); break;
     case "cancelled": apply({ id: m.id, status: "cancelled" }); break;
+    case "deleted": jobs.delete(m.id); speeds.delete(m.id); if (selected === m.id) selected = null;
+      renderCats(); renderRows(); break;
   }
 });
 
-$("add").onclick = async () => {
-  const url = $("url").value.trim();
-  if (!url) return;
-  try {
-    await invoke("add_url", { url });
-    $("url").value = "";
-    toast("ditambahkan");
-  } catch (e) {
-    toast(String(e));
+setInterval(() => {
+  for (const j of jobs.values()) {
+    if (j.status === "running") { j.speed = sampleSpeed(j.id, j.done); }
   }
-};
-$("url").addEventListener("keydown", (e) => e.key === "Enter" && $("add").click());
+  const running = [...jobs.values()].filter((j) => j.status === "running");
+  totalHist.push({ t: Date.now(), v: running.reduce((a, j) => a + (j.speed || 0), 0) });
+  if (totalHist.length > 120) totalHist.shift();
+  renderRows(); drawGraph();
+}, 500);
 
-$("cfg").onclick = async () => {
-  const p = $("settings");
-  if (!p.classList.contains("open")) {
-    const s = await invoke("get_settings");
-    $("dir").value = s.dir || "";
-    $("seg").value = s.segments || 8;
-  }
-  p.classList.toggle("open");
+/* ---------- dialogs ---------- */
+function openModal(html) { $("dlg").innerHTML = html; $("modal").classList.add("open"); }
+function closeModal() { $("modal").classList.remove("open"); }
+$("modal").onclick = (e) => { if (e.target.id === "modal") closeModal(); };
+
+$("b-add").onclick = () => {
+  openModal(`<h3>Tambah URL unduhan</h3>
+    <input id="m-url" placeholder="https://…" autofocus />
+    <div class="btns"><button id="m-cancel">Batal</button><button id="m-ok" class="pri">Unduh</button></div>`);
+  $("m-cancel").onclick = closeModal;
+  const go = async () => {
+    const url = $("m-url").value.trim();
+    if (!url) return;
+    try { await invoke("add_url", { url }); } catch (e) { alert(e); }
+    closeModal();
+  };
+  $("m-ok").onclick = go;
+  $("m-url").addEventListener("keydown", (e) => e.key === "Enter" && go());
+  setTimeout(() => $("m-url").focus(), 50);
 };
 
-$("save").onclick = async () => {
-  await invoke("set_settings", {
-    v: { dir: $("dir").value.trim() || null, segments: Number($("seg").value) || 8 },
-  });
-  $("settings").classList.remove("open");
-  toast("tersimpan");
+$("b-resume").onclick = () => selected && invoke("job_action", { action: "resume", id: selected }).catch(alert);
+$("b-stop").onclick = () => selected && invoke("job_action", { action: "pause", id: selected }).catch(alert);
+$("b-delete").onclick = () => selected && invoke("job_action", { action: "delete", id: selected }).catch(alert);
+$("b-restart").onclick = () => selected && invoke("job_action", { action: "restart", id: selected }).catch(alert);
+
+$("b-options").onclick = async () => {
+  const s = await invoke("get_settings");
+  openModal(`<h3>Pengaturan</h3>
+    <div class="fld"><label>Folder</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="default: ~/Downloads"></div>
+    <div class="fld"><label>Segmen</label><input id="o-seg" type="number" min="1" max="32" value="${s.segments || 8}"></div>
+    <div class="btns"><button id="o-cancel">Batal</button><button id="o-ok" class="pri">Simpan</button></div>`);
+  $("o-cancel").onclick = closeModal;
+  $("o-ok").onclick = async () => {
+    await invoke("set_settings", {
+      v: { dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8 },
+    });
+    closeModal();
+  };
 };
 
 invoke("list_jobs").catch(() => {});

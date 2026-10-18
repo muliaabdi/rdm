@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+/// Per-segment snapshot: [start,end] inclusive, `done` bytes written.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SegmentInfo {
+    pub start: u64,
+    pub end: u64,
+    pub done: u64,
+}
+
 /// Engine progress stream for one job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Progress {
@@ -8,6 +16,9 @@ pub enum Progress {
         filename: String,
         size: Option<u64>,
         segments: usize,
+    },
+    Detail {
+        segments: Vec<SegmentInfo>,
     },
     Bytes {
         delta: u64,
@@ -46,7 +57,8 @@ impl Progress {
                 Some(s) if *s > 0 => format!("\r{:.1}% {}/{}B", 100.0 * *total_done as f64 / *s as f64, total_done, s),
                 _ => format!("\r{}B", total_done),
             },
-            Progress::SegmentDone { index } => format!("segment {index} done"),
+            Progress::Detail { .. } => String::new(),
+        Progress::SegmentDone { index } => format!("segment {index} done"),
             Progress::Retrying { index, attempt, error } => {
                 format!("retry seg {index} #{attempt}: {error}")
             }

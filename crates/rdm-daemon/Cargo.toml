@@ -18,3 +18,4 @@ rusqlite = { workspace = true }
 
 [dev-dependencies]
 axum = { workspace = true }
+futures-util = { workspace = true }

@@ -2,16 +2,18 @@
 //!
 //! Messages (one JSON object per line, both directions):
 //! - in:  {"t":"offer","url":..,"filename":..,"cookie":..,"referer":..,"ua":..,"dir":..,"segments":N}
-//! - in:  {"t":"list"}
-//! - out: {"t":"accepted","id":N} | {"t":"started",..} | {"t":"progress",..}
+//!        {"t":"list"} | {"t":"pause","id":N} | {"t":"resume","id":N} | {"t":"cancel","id":N}
+//!        {"t":"restart","id":N} | {"t":"delete","id":N}
+//! - out: {"t":"accepted","id":N} | {"t":"started",..} | {"t":"progress",..} | {"t":"detail",..}
 //!        | {"t":"done",..} | {"t":"failed",..} | {"t":"cancelled",..} | {"t":"jobs",..}
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, COOKIE, REFERER, USER_AGENT};
 use serde::Deserialize;
 use serde_json::json;
@@ -53,15 +55,21 @@ fn default_out_dir() -> PathBuf {
     }
 }
 
+struct JobCtl {
+    kill: watch::Sender<bool>,
+    intent: &'static str, // status recorded when the engine reports cancellation
+}
+
 struct App {
     db: Mutex<rusqlite::Connection>,
     events: broadcast::Sender<String>,
     next_id: AtomicU64,
+    ctl: Mutex<HashMap<u64, JobCtl>>,
 }
 
 impl App {
-    fn open() -> Result<Self> {
-        let path = db_path();
+    fn open(db_path: PathBuf) -> Result<Self> {
+        let path = db_path;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).context("create data dir")?;
         }
@@ -77,10 +85,22 @@ impl App {
                 status TEXT NOT NULL,
                 error TEXT,
                 created INTEGER NOT NULL,
-                updated INTEGER NOT NULL
+                updated INTEGER NOT NULL,
+                spec TEXT
             );",
         )
         .context("init schema")?;
+        // migrate old db without spec column
+        let cols: Vec<String> = {
+            let mut stmt = db.prepare("PRAGMA table_info(jobs)")?;
+            let names = stmt
+                .query_map([], |r| r.get::<_, String>(1))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            names
+        };
+        if !cols.iter().any(|c| c == "spec") {
+            db.execute_batch("ALTER TABLE jobs ADD COLUMN spec TEXT;")?;
+        }
         let (events, _) = broadcast::channel(256);
         let mut next = 1u64;
         {
@@ -91,24 +111,43 @@ impl App {
                 next = m as u64 + 1;
             }
         }
-        Ok(App { db: Mutex::new(db), events, next_id: AtomicU64::new(next) })
+        Ok(App { db: Mutex::new(db), events, next_id: AtomicU64::new(next), ctl: Mutex::new(HashMap::new()) })
     }
 
     fn db_update(&self, id: u64, done: u64, status: &str, error: Option<&str>, size: Option<u64>) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        if let Ok(db) = self.db.lock() {
-            let _ = db.execute(
+        self.db_exec(move |db| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            db.execute(
                 "UPDATE jobs SET done=?1, status=?2, error=?3, updated=?4, size=COALESCE(?5,size) WHERE id=?6",
                 rusqlite::params![done as i64, status, error, now, size.map(|s| s as i64), id as i64],
-            );
+            )?;
+            Ok(())
+        });
+    }
+
+    fn db_exec<F>(&self, f: F)
+    where
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<()>,
+    {
+        if let Ok(db) = self.db.lock() {
+            if let Err(e) = f(&db) {
+                tracing::warn!("db: {e}");
+            }
         }
+    }
+
+    fn db_get_spec(&self, id: u64) -> Option<String> {
+        let db = self.db.lock().ok()?;
+        db.query_row("SELECT spec FROM jobs WHERE id=?1", [id as i64], |r| r.get::<_, Option<String>>(0))
+            .ok()
+            .flatten()
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct Offer {
     url: String,
     filename: Option<String>,
@@ -120,10 +159,13 @@ struct Offer {
 }
 
 pub async fn run(path: PathBuf) -> Result<()> {
-    // Refuse double-start; clear stale socket.
+    run_at(path, db_path()).await
+}
+
+pub async fn run_at(path: PathBuf, db_path: PathBuf) -> Result<()> {
     if path.exists() {
         if UnixStream::connect(&path).await.is_ok() {
-            anyhow::bail!("rdm-daemon already listening at {}", path.display());
+            bail!("rdm-daemon already listening at {}", path.display());
         }
         std::fs::remove_file(&path).context("remove stale socket")?;
     }
@@ -138,7 +180,7 @@ pub async fn run(path: PathBuf) -> Result<()> {
             .context("chmod socket 0600")?;
     }
     tracing::info!("listening at {}", path.display());
-    let app = Arc::new(App::open()?);
+    let app = Arc::new(App::open(db_path)?);
     loop {
         let (stream, _) = listener.accept().await?;
         let app = app.clone();
@@ -193,13 +235,61 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             let jobs = list_jobs(&app)?;
             Ok(Some(json!({"t":"jobs","jobs":jobs}).to_string()))
         }
-        _ => anyhow::bail!("unknown message type"),
+        Some("pause") | Some("cancel") => {
+            let id = v["id"].as_u64().context("id required")?;
+            let paused = v["t"].as_str() == Some("pause");
+            stop_job(&app, id, if paused { "paused" } else { "cancelled" }).await?;
+            Ok(None)
+        }
+        Some("resume") | Some("restart") => {
+            let id = v["id"].as_u64().context("id required")?;
+            let restart = v["t"].as_str() == Some("restart");
+            resume_job(&app, id, restart).await?;
+            Ok(None)
+        }
+        Some("delete") => {
+            let id = v["id"].as_u64().context("id required")?;
+            delete_job(&app, id)?;
+            Ok(None)
+        }
+        _ => bail!("unknown message type"),
     }
 }
 
 async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
     let id = app.next_id.fetch_add(1, Ordering::SeqCst);
-    let dir = offer.dir.map(PathBuf::from).unwrap_or_else(default_out_dir);
+    let spec = serde_json::to_string(&offer_json(&offer))?;
+    let (job, out_path, filename) = build_job(&offer)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    {
+        let db = app.db.lock().map_err(|e| anyhow::anyhow!("db lock: {e}"))?;
+        db.execute(
+            "INSERT INTO jobs(id,url,filename,out_path,size,done,status,error,created,updated,spec) \
+             VALUES(?1,?2,?3,?4,NULL,0,'running',NULL,?5,?5,?6)",
+            rusqlite::params![id as i64, offer.url, filename, out_path, now, spec],
+        )?;
+    }
+    spawn_job(app, id, job).await;
+    Ok(id)
+}
+
+fn offer_json(o: &Offer) -> serde_json::Value {
+    json!({
+        "url": o.url,
+        "filename": o.filename,
+        "cookie": o.cookie,
+        "referer": o.referer,
+        "ua": o.ua,
+        "dir": o.dir,
+        "segments": o.segments,
+    })
+}
+
+fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
+    let dir = offer.dir.clone().map(PathBuf::from).unwrap_or_else(default_out_dir);
     std::fs::create_dir_all(&dir).ok();
 
     let mut job: Job = job_from_url(&offer.url, Some(dir.clone()), offer.segments.unwrap_or(8), Limits::default());
@@ -222,30 +312,87 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
     put(&mut hdrs, USER_AGENT, offer.ua.as_deref().unwrap_or(""));
     job.headers = hdrs;
 
-    let filename = job.out.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     let out_path = job.out.to_string_lossy().to_string();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    if let Ok(db) = app.db.lock() {
-        db.execute(
-            "INSERT INTO jobs(id,url,filename,out_path,size,done,status,error,created,updated) VALUES(?1,?2,?3,?4,NULL,0,'running',NULL,?5,?5)",
-            rusqlite::params![id as i64, offer.url, filename, out_path, now],
-        )?;
-    }
-
-    let app2 = app.clone();
-    tokio::spawn(async move {
-        run_job(app2, id, job).await;
-    });
-    Ok(id)
+    let filename = job.out.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    Ok((job, out_path, filename))
 }
 
-async fn run_job(app: Arc<App>, id: u64, job: Job) {
+async fn spawn_job(app: Arc<App>, id: u64, job: Job) {
+    let (kill_tx, kill_rx) = watch::channel(false);
+    app.ctl.lock().unwrap().insert(id, JobCtl { kill: kill_tx, intent: "cancelled" });
+    let app2 = app.clone();
+    tokio::spawn(async move {
+        run_job(app2, id, job, kill_rx).await;
+    });
+}
+
+async fn stop_job(app: &Arc<App>, id: u64, intent: &'static str) -> Result<()> {
+    let mut ctl = app.ctl.lock().unwrap();
+    if let Some(c) = ctl.get_mut(&id) {
+        c.intent = intent;
+        let _ = c.kill.send(true);
+        drop(ctl);
+        Ok(())
+    } else {
+        drop(ctl);
+        app.db_exec(move |db| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            db.execute(
+                "UPDATE jobs SET status=?1, updated=?2 WHERE id=?3",
+                rusqlite::params![intent, now, id as i64],
+            )?;
+            Ok(())
+        });
+        Ok(())
+    }
+}
+
+async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
+    // a just-paused job may still be tearing down; wait briefly for it
+    for _ in 0..30 {
+        if !app.ctl.lock().unwrap().contains_key(&id) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if app.ctl.lock().unwrap().contains_key(&id) {
+        bail!("job {id} masih berjalan");
+    }
+    let Some(spec) = app.db_get_spec(id) else {
+        bail!("spec untuk job {id} tidak ada");
+    };
+    let offer: Offer = serde_json::from_str(&spec).context("spec rusak")?;
+    if restart {
+        let (_, out_path, _) = build_job(&offer)?;
+        let _ = std::fs::remove_file(format!("{out_path}.rdm-part.json"));
+        app.db_update(id, 0, "running", None, None);
+    }
+    let (job, _, _) = build_job(&offer)?;
+    app.db_update(id, 0, "running", None, None);
+    spawn_job(app.clone(), id, job).await;
+    Ok(())
+}
+
+fn delete_job(app: &Arc<App>, id: u64) -> Result<()> {
+    {
+        let ctl = app.ctl.lock().unwrap();
+        if let Some(c) = ctl.get(&id) {
+            let _ = c.kill.send(true);
+        }
+    }
+    app.ctl.lock().unwrap().remove(&id);
+    let id2 = id;
+    app.db_exec(move |db| db.execute("DELETE FROM jobs WHERE id=?1", [id2 as i64]).map(|_| ()));
+    let _ = app.events.send(json!({"t":"deleted","id":id}).to_string());
+    Ok(())
+}
+
+async fn run_job(app: Arc<App>, id: u64, job: Job, kill_rx: watch::Receiver<bool>) {
     let (tx, mut rx) = mpsc::channel::<Progress>(512);
-    let (_kt, kr) = watch::channel(false);
-    let handle = tokio::spawn(download(job, tx, kr));
+    let handle = tokio::spawn(download(job, tx, kill_rx));
     let mut last = Instant::now() - Duration::from_secs(10);
     let mut done = 0u64;
     let mut size: Option<u64> = None;
@@ -257,6 +404,9 @@ async fn run_job(app: Arc<App>, id: u64, job: Job) {
                 size = *s;
                 line = Some(json!({"t":"started","id":id,"size":s}).to_string());
             }
+            Progress::Detail { segments } => {
+                line = Some(json!({"t":"detail","id":id,"segments":segments}).to_string());
+            }
             Progress::Bytes { total_done, size: s, .. } => {
                 done = *total_done;
                 size = *s;
@@ -266,7 +416,9 @@ async fn run_job(app: Arc<App>, id: u64, job: Job) {
                 }
             }
             Progress::Retrying { index, attempt, error } => {
-                line = Some(json!({"t":"retrying","id":id,"segment":index,"attempt":attempt,"error":error}).to_string());
+                line = Some(
+                    json!({"t":"retrying","id":id,"segment":index,"attempt":attempt,"error":error}).to_string(),
+                );
             }
             Progress::Completed { size: s, sha256 } => {
                 done = *s;
@@ -280,8 +432,15 @@ async fn run_job(app: Arc<App>, id: u64, job: Job) {
             }
             Progress::Cancelled { total_done } => {
                 done = *total_done;
-                line = Some(json!({"t":"cancelled","id":id,"done":done}).to_string());
-                terminal = Some(("cancelled", None));
+                let intent = app
+                    .ctl
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .map(|c| c.intent)
+                    .unwrap_or("cancelled");
+                line = Some(json!({"t":intent,"id":id,"done":done}).to_string());
+                terminal = Some((intent, None));
             }
             Progress::SegmentDone { .. } => {}
         }
@@ -295,11 +454,13 @@ async fn run_job(app: Arc<App>, id: u64, job: Job) {
         }
     }
     let _ = handle.await;
+    app.ctl.lock().unwrap().remove(&id);
 }
 
 fn list_jobs(app: &App) -> Result<serde_json::Value> {
     let db = app.db.lock().map_err(|e| anyhow::anyhow!("db lock: {e}"))?;
-    let mut stmt = db.prepare("SELECT id,url,filename,out_path,size,done,status,error FROM jobs ORDER BY id DESC LIMIT 100")?;
+    let mut stmt =
+        db.prepare("SELECT id,url,filename,out_path,size,done,status,error FROM jobs ORDER BY id DESC LIMIT 200")?;
     let rows = stmt.query_map([], |r| {
         Ok(json!({
             "id": r.get::<_, i64>(0)?,

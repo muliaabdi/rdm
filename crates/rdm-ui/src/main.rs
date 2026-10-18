@@ -149,6 +149,15 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
 }
 
 #[tauri::command]
+fn job_action(ctx: State<'_, Arc<Ctx>>, action: String, id: u64) -> Result<(), String> {
+    const ALLOWED: [&str; 6] = ["pause", "resume", "cancel", "restart", "delete", "list"];
+    if !ALLOWED.contains(&action.as_str()) {
+        return Err(format!("aksi tidak dikenal: {action}"));
+    }
+    send_line(&ctx, json!({"t":action,"id":id}).to_string())
+}
+
+#[tauri::command]
 fn diag(msg: String) {
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -173,7 +182,14 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_jobs, add_url, get_settings, set_settings, diag])
+        .invoke_handler(tauri::generate_handler![
+            list_jobs,
+            add_url,
+            get_settings,
+            set_settings,
+            job_action,
+            diag
+        ])
         .run(tauri::generate_context!())
         .expect("error while running rdm-ui");
 }

@@ -177,6 +177,7 @@ struct Shared {
     limiter: Limiter,
     failed: Mutex<Option<String>>,
     attempts: Vec<AtomicU32>,
+    last_detail: Mutex<Option<Instant>>,
 }
 
 /// Run one download job to completion, cancellation, or failure.
@@ -267,6 +268,7 @@ pub async fn download(
         attempts: st.segments.iter().map(|_| AtomicU32::new(0)).collect(),
         state: Mutex::new(st.clone()),
         failed: Mutex::new(None),
+        last_detail: Mutex::new(None),
     });
 
     let mut set = tokio::task::JoinSet::new();
@@ -437,13 +439,22 @@ async fn segment_task(
                 let mut st = sh.state.lock().await;
                 st.segments[idx].done = pos - st.segments[idx].start;
                 let t = st.total_done();
-                let size = st.size;
-                if st.segments[idx].remaining() == 0 || st.segments[idx].done >= st.segments[idx].len() {
-                    // clamp for open-ended segment (server closed early on unknown size)
-                }
-                let _ = size;
                 t
             };
+            if idx == 0 {
+                let due = { sh.last_detail.lock().await.map(|i| i.elapsed() >= Duration::from_millis(400)).unwrap_or(true) };
+                if due {
+                    let snap = {
+                        let st = sh.state.lock().await;
+                        st.segments
+                            .iter()
+                            .map(|s| crate::events::SegmentInfo { start: s.start, end: s.end, done: s.done })
+                            .collect::<Vec<_>>()
+                    };
+                    *sh.last_detail.lock().await = Some(Instant::now());
+                    ev.send(Progress::Detail { segments: snap }).await.ok();
+                }
+            }
             ev.send(Progress::Bytes { delta: chunk.len() as u64, total_done, size: sh.state.lock().await.size })
                 .await
                 .ok();
