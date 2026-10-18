@@ -82,6 +82,29 @@ fn probe_url(ctx: State<'_, Arc<Ctx>>, url: String) -> Result<(), String> {
     send_line(&ctx, json!({"t":"extract","url":url}).to_string())
 }
 
+/// Open a finished file (folder=false) or the folder containing it.
+#[tauri::command]
+fn open_path(path: String, folder: bool) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let p = std::path::PathBuf::from(&path);
+    let target = if folder {
+        if p.is_dir() { p } else { p.parent().map(|x| x.to_path_buf()).unwrap_or(p) }
+    } else {
+        p
+    };
+    if !target.exists() {
+        return Err(if folder { "folder not found".into() } else { "file not found".into() });
+    }
+    Command::new("xdg-open")
+        .arg(&target)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("xdg-open: {e}"))
+}
+
 #[tauri::command]
 fn add_page(ctx: State<'_, Arc<Ctx>>, url: String, height: u64, audio_only: bool) -> Result<(), String> {
     let s = read_settings();
@@ -291,6 +314,7 @@ fn main() {
             list_jobs,
             add_url,
             probe_url,
+            open_path,
             add_page,
             get_settings,
             set_settings,

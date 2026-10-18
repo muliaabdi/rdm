@@ -319,6 +319,7 @@ const I18N = {
     col_downloaded: "Downloaded", speed_graph: "Speed graph",
     no_selection: "No download selected", items_zero: "0 items", total_zero: "0 B/s total",
     details: "Details", details_title: "Download details", btn_close: "Close",
+    ctx_open_file: "Open file", ctx_open_folder: "Open folder",
     connecting: "connecting…", connected: "connected", disconnected: "disconnected",
     cat_all: "All", cat_compressed: "Compressed", cat_documents: "Documents",
     cat_music: "Music", cat_video: "Video", cat_programs: "Programs", cat_other: "Other",
@@ -352,6 +353,7 @@ const I18N = {
     col_downloaded: "Terunduh", speed_graph: "Grafik kecepatan",
     no_selection: "Tidak ada unduhan dipilih", items_zero: "0 item", total_zero: "0 B/s total",
     details: "Rincian", details_title: "Rincian unduhan", btn_close: "Tutup",
+    ctx_open_file: "Buka berkas", ctx_open_folder: "Buka folder",
     connecting: "menghubungkan…", connected: "terhubung", disconnected: "terputus…",
     cat_all: "Semua", cat_compressed: "Terkompresi", cat_documents: "Dokumen",
     cat_music: "Musik", cat_video: "Video", cat_programs: "Program", cat_other: "Lainnya",
@@ -625,6 +627,8 @@ const CTX_ICONS = {
   stop: '<svg viewBox="0 0 24 24" fill="#c0392b" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   resume: '<svg viewBox="0 0 24 24" fill="#2e8b30" aria-hidden="true"><path d="M7.5 4.8c0-.9 1-1.5 1.8-1L19 10.2c.8.5.8 1.6 0 2.1L9.3 18.9c-.8.5-1.8-.1-1.8-1z"/></svg>',
   delete: '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8c0-.4.4-.8.8-.8h3.4c.4 0 .8.4.8.8V7m-9.7 0l.9 12.3c.1.9.8 1.7 1.8 1.7h7c1 0 1.7-.8 1.8-1.7L17.2 7M10 11v6m4-6v6"/></svg>',
+  openfile: '<svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6.8C6 3 5.3 3.7 5.3 4.5v15c0 .8.7 1.5 1.5 1.5h10.4c.8 0 1.5-.7 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.7M9.4 12.4h5.2M9.4 16h5.2"/></svg>',
+  openfolder: '<svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5c0-.8.7-1.5 1.5-1.5h4l2 2.5h8c.8 0 1.5.7 1.5 1.5v9c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z"/></svg>',
 };
 let ctxId = null;
 function closeCtx() {
@@ -645,6 +649,10 @@ function openCtx(id, x, y) {
   const items = [
     { ic: "details", label: t("details"), en: true,
       fn: (i) => openDetails(i) },
+    { ic: "openfile", label: t("ctx_open_file"), en: j.status === "completed",
+      fn: (i) => invoke("open_path", { path: jobs.get(i)?.out_path || "", folder: false }).catch((e) => alert(trErr(e))) },
+    { ic: "openfolder", label: t("ctx_open_folder"), en: !!(j.out_path && j.status !== "confirming"),
+      fn: (i) => invoke("open_path", { path: jobs.get(i)?.out_path || "", folder: true }).catch((e) => alert(trErr(e))) },
     running || canResume
       ? { ic: running ? "stop" : "resume", label: running ? t("stop") : t("resume"), en: true,
           fn: (i) => invoke("job_action", { action: running ? "pause" : "resume", id: i }).catch((e) => alert(trErr(e))) }
