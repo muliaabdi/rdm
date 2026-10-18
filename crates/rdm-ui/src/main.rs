@@ -45,6 +45,51 @@ fn get_settings() -> serde_json::Value {
     read_settings()
 }
 
+/// XDG autostart entry for this desktop (KDE/GNOME read the same file).
+fn autostart_file() -> PathBuf {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")
+        });
+    base.join("autostart").join("rdm.desktop")
+}
+
+#[tauri::command]
+fn get_autostart() -> bool {
+    autostart_file().is_file()
+}
+
+/// Create or remove the login autostart entry. The entry launches this very
+/// binary, so rebuilding/moving the app only needs a settings save to refresh.
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    let p = autostart_file();
+    if !enabled {
+        return match std::fs::remove_file(&p) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        };
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let icon = exe
+        .parent()
+        .map(|d| d.join("icons/icon.png"))
+        .filter(|i| i.is_file())
+        .map(|i| i.to_string_lossy().to_string())
+        .unwrap_or_else(|| "rdm".into());
+    let entry = format!(
+        "[Desktop Entry]\nType=Application\nName=RDM\nComment=Download manager\nExec={}\nIcon={}\nTerminal=false\nStartupNotify=false\nX-GNOME-Autostart-enabled=true\n",
+        exe.display(),
+        icon
+    );
+    std::fs::write(&p, entry).map_err(|e| e.to_string())
+}
+
 fn send_line(ctx: &Ctx, line: String) -> Result<(), String> {
     let guard = ctx.tx.lock().map_err(|e| e.to_string())?;
     match &*guard {
@@ -344,6 +389,8 @@ fn main() {
             add_page,
             get_settings,
             set_settings,
+            get_autostart,
+            set_autostart,
             job_action,
             diag
         ])

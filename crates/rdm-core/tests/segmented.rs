@@ -2,6 +2,7 @@
 //! Range-capable HTTP server.
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -61,6 +62,52 @@ async fn handler(State(data): State<Arc<Vec<u8>>>, headers: HeaderMap) -> Respon
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_LENGTH, body.len());
     resp.body(Body::from(body.to_vec())).unwrap()
+}
+
+async fn serve_slow(data: Arc<Vec<u8>>) -> (String, Arc<SlowState>) {
+    let state = Arc::new(SlowState { data, hits: AtomicUsize::new(0) });
+    let app = axum::Router::new()
+        .route("/slow.bin", axum::routing::get(slow_handler))
+        .with_state(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}/slow.bin"), state)
+}
+
+struct SlowState {
+    data: Arc<Vec<u8>>,
+    hits: AtomicUsize,
+}
+
+/// Same as `handler`, but the first data request answers late: that connection
+/// falls behind while the others finish, which is what dynamic splitting is for.
+async fn slow_handler(State(s): State<Arc<SlowState>>, headers: HeaderMap) -> Response {
+    let data = &s.data;
+    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let Some(r) = range else {
+        return Response::builder()
+            .header(header::ACCEPT_RANGES, "bytes")
+            .header(header::CONTENT_LENGTH, data.len())
+            .body(Body::from(data.to_vec()))
+            .unwrap();
+    };
+    let spec = r.trim_start_matches("bytes=");
+    let (a, b) = spec.split_once('-').unwrap();
+    let start: usize = a.parse().unwrap();
+    let end = if b.is_empty() { data.len() - 1 } else { b.parse().unwrap() }.min(data.len() - 1);
+    // a probe asks for one byte; only real segment reads are stalled
+    if end > start && s.hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+    }
+    let slice = data[start..=end].to_vec();
+    Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::ETAG, "\"v1\"")
+        .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{}", data.len()))
+        .header(header::CONTENT_LENGTH, slice.len())
+        .body(Body::from(slice))
+        .unwrap()
 }
 
 fn tmpdir(tag: &str) -> PathBuf {
@@ -149,4 +196,41 @@ async fn cancel_then_resume_completes() {
         assert_eq!(got.len(), SIZE);
         assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 31 + 7) as u8));
     }
+}
+
+/// IDM-style dynamic splitting: while one connection stalls, the idle ones must
+/// carve up its remaining bytes instead of waiting for it.
+#[tokio::test]
+async fn stalled_connection_gets_split() {
+    const BIG: usize = 24 * 1024 * 1024;
+    let mut data = vec![0u8; BIG];
+    for (i, b) in data.iter_mut().enumerate() {
+        *b = (i * 37 + 11) as u8;
+    }
+    let (url, _state) = serve_slow(Arc::new(data)).await;
+    let dir = tmpdir("steal");
+    let job = job_from_url(&url, Some(dir.clone()), 6, Limits::default());
+    let (tx, mut rx) = mpsc::channel(4096);
+    let (_kx, kx) = watch::channel(false);
+    let handle = tokio::spawn(download(job, tx, kx));
+
+    let mut initial = 0usize;
+    let mut max_segments = 0usize;
+    while let Some(p) = rx.recv().await {
+        match p {
+            Progress::Started { segments, .. } => initial = segments,
+            Progress::Detail { segments } => max_segments = max_segments.max(segments.len()),
+            _ => {}
+        }
+    }
+    handle.await.unwrap().unwrap();
+    assert_eq!(initial, 6);
+    assert!(
+        max_segments > initial,
+        "dynamic splitting never triggered: peak {max_segments} segments"
+    );
+
+    let got = std::fs::read(dir.join("slow.bin")).unwrap();
+    assert_eq!(got.len(), BIG);
+    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 37 + 11) as u8));
 }

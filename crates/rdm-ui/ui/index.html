@@ -230,6 +230,7 @@
   #dlg .fld label { width: 96px; color: #4a4e54; }
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
   #dlg .fld input.narrow { flex: 0 0 108px; }
+  #dlg .fld input.chk { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #2b6cff; }
 
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -357,6 +358,7 @@ const I18N = {
     err_gone_file: "File no longer exists on disk", err_gone_folder: "Folder no longer exists",
     err_no_opener: "No app found to open this",
     fld_intercept: "Intercept types", ph_intercept: "empty = all · zip, rar, exe, pdf",
+    fld_autostart: "Start with system",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
     col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
   },
@@ -393,6 +395,7 @@ const I18N = {
     err_gone_file: "Berkas sudah tidak ada di disk", err_gone_folder: "Folder sudah tidak ada",
     err_no_opener: "Tidak ada aplikasi untuk membuka ini",
     fld_intercept: "Jenis interupsi", ph_intercept: "kosong = semua · zip, rar, exe, pdf",
+    fld_autostart: "Mulai saat login",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
     col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
   },
@@ -1065,6 +1068,7 @@ $("rows").addEventListener("keydown", (e) => e.key === "Enter" && document.activ
 
 $("b-options").onclick = async () => {
   const s = await invoke("get_settings");
+  const auto = await invoke("get_autostart").catch(() => !!s.autostart);
   openModal(`<h3>${t("dlg_settings_title")}</h3>
     <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
     <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
@@ -1072,6 +1076,7 @@ $("b-options").onclick = async () => {
     <div class="fld"><label>${t("fld_lang")}</label><select id="o-lang">
       <option value="en"${lang === "en" ? " selected" : ""}>English</option>
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
+    <div class="fld"><label>${t("fld_autostart")}</label><input id="o-auto" class="chk" type="checkbox"${auto ? " checked" : ""}></div>
     <div class="btns"><button id="o-cancel">${t("btn_cancel")}</button><button id="o-ok" class="pri">${t("btn_save")}</button></div>`);
   $("o-cancel").onclick = closeModal;
   $("o-ok").onclick = async () => {
@@ -1080,9 +1085,11 @@ $("b-options").onclick = async () => {
       .split(/[,;\s]+/)
       .map((x) => x.replace(/^\./, "").toLowerCase())
       .filter((x) => /^[a-z0-9]{1,8}$/.test(x)))];
+    const auto = $("o-auto").checked;
     await invoke("set_settings", {
-      v: { dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8, lang: next, intercept_ext: ints },
+      v: { dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8, lang: next, intercept_ext: ints, autostart: auto },
     });
+    await invoke("set_autostart", { enabled: auto }).catch((e) => toast(trErr(e)));
     closeModal();
     if (next !== lang) setLang(next);
   };
@@ -1092,6 +1099,8 @@ $("b-options").onclick = async () => {
   try {
     const s = await invoke("get_settings");
     if (s && s.lang === "id") lang = "id";
+    // keep the autostart entry pointing at this build
+    if (s && s.autostart) invoke("set_autostart", { enabled: true }).catch(() => {});
   } catch (e) { diag("lang load: " + e); }
   applyI18n();
 })();

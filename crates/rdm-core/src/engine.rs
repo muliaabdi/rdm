@@ -1,7 +1,6 @@
 //! Segmented downloader: probe, parallel range fetch, resume, speed limit.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -15,6 +14,9 @@ use crate::state::{split, JobState};
 
 pub const DEFAULT_MIN_SEGMENT: u64 = 1024 * 1024;
 const RETRY_DELAY: Duration = Duration::from_millis(800);
+/// A task only steals when at least this much is left, so split halves stay
+/// meaningful (mirrors IDM's dynamic segmentation floor).
+pub const MIN_STEAL: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Limits {
@@ -176,7 +178,7 @@ struct Shared {
     state: Mutex<JobState>,
     limiter: Limiter,
     failed: Mutex<Option<String>>,
-    attempts: Vec<AtomicU32>,
+    attempts: Mutex<Vec<u32>>,
     last_detail: Mutex<Option<Instant>>,
 }
 
@@ -265,7 +267,7 @@ pub async fn download(
 
     let shared = Arc::new(Shared {
         limiter: Limiter::new(limits.max_speed),
-        attempts: st.segments.iter().map(|_| AtomicU32::new(0)).collect(),
+        attempts: Mutex::new(vec![0; st.segments.len()]),
         state: Mutex::new(st.clone()),
         failed: Mutex::new(None),
         last_detail: Mutex::new(None),
@@ -364,7 +366,7 @@ async fn segment_task(
     url: String,
     hdrs: HeaderMap,
     out: PathBuf,
-    idx: usize,
+    start_idx: usize,
     ev: mpsc::Sender<Progress>,
     kill: &mut watch::Receiver<bool>,
     retries: u32,
@@ -376,72 +378,90 @@ async fn segment_task(
             return;
         }
     };
+    let mut idx = start_idx;
     loop {
-        if *kill.borrow() {
-            return;
-        }
-        if sh.failed.lock().await.is_some() {
-            return;
-        }
-        let (offset, end) = {
-            let st = sh.state.lock().await;
-            let s = &st.segments[idx];
-            (s.offset(), s.end)
-        };
-        if offset > end {
-            return; // segment finished
-        }
-        let mut req = client.get(&url).headers(hdrs.clone());
-        if end != u64::MAX {
-            req = req.header(RANGE, format!("bytes={offset}-{end}"));
-        } else if offset > 0 {
-            req = req.header(RANGE, format!("bytes={offset}-"));
-        }
-        if let Some(etag) = sh.state.lock().await.etag.clone() {
-            if let Ok(v) = HeaderValue::from_str(&etag) {
-                req = req.header(IF_MATCH, v);
+        // fetch the assigned segment; on completion try to steal more work
+        // from the largest remaining segment (IDM-style dynamic splitting)
+        loop {
+            if *kill.borrow() {
+                return;
             }
-        }
-        let resp = match req.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                if !retry(sh.clone(), idx, retries, format!("request: {e}"), &ev).await {
+            if sh.failed.lock().await.is_some() {
+                return;
+            }
+            let (offset, end) = {
+                let st = sh.state.lock().await;
+                let s = &st.segments[idx];
+                (s.offset(), s.end)
+            };
+            if offset > end {
+                break; // segment finished -> steal phase
+            }
+            let mut req = client.get(&url).headers(hdrs.clone());
+            if end != u64::MAX {
+                req = req.header(RANGE, format!("bytes={offset}-{end}"));
+            } else if offset > 0 {
+                req = req.header(RANGE, format!("bytes={offset}-"));
+            }
+            if let Some(etag) = sh.state.lock().await.etag.clone() {
+                if let Ok(v) = HeaderValue::from_str(&etag) {
+                    req = req.header(IF_MATCH, v);
+                }
+            }
+            let resp = match req.send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    if !retry(sh.clone(), idx, retries, format!("request: {e}"), &ev).await {
+                        return;
+                    }
+                    continue;
+                }
+            };
+            if !resp.status().is_success() {
+                let msg = format!("HTTP {} @ seg {idx}", resp.status());
+                if !retry(sh.clone(), idx, retries, msg, &ev).await {
                     return;
                 }
                 continue;
             }
-        };
-        if !resp.status().is_success() {
-            let msg = format!("HTTP {} @ seg {idx}", resp.status());
-            if !retry(sh.clone(), idx, retries, msg, &ev).await {
-                return;
-            }
-            continue;
-        }
-        let mut stream = resp.bytes_stream();
-        let mut pos = offset;
-        loop {
-            if *kill.borrow() || sh.failed.lock().await.is_some() {
-                return;
-            }
-            let chunk = match stream.next().await {
-                Some(Ok(c)) => c,
-                Some(Err(_)) => break, // retry outer loop from current pos
-                None => break,
-            };
-            sh.limiter.acquire(chunk.len()).await;
-            if let Err(e) = write_at(&mut file, pos, &chunk) {
-                *sh.failed.lock().await = Some(format!("write: {e}"));
-                return;
-            }
-            pos += chunk.len() as u64;
-            let total_done = {
-                let mut st = sh.state.lock().await;
-                st.segments[idx].done = pos - st.segments[idx].start;
-                let t = st.total_done();
-                t
-            };
-            if idx == 0 {
+            let mut stream = resp.bytes_stream();
+            let mut pos = offset;
+            loop {
+                if *kill.borrow() || sh.failed.lock().await.is_some() {
+                    return;
+                }
+                let chunk = match stream.next().await {
+                    Some(Ok(c)) => c,
+                    Some(Err(_)) => break, // retry outer loop from current pos
+                    None => break,
+                };
+                sh.limiter.acquire(chunk.len()).await;
+                // the segment may have been shrunk by a stealing task while
+                // this request was in flight; never write past `end`
+                let (seg_start, seg_end) = {
+                    let st = sh.state.lock().await;
+                    (st.segments[idx].start, st.segments[idx].end)
+                };
+                let room = if seg_end == u64::MAX {
+                    usize::MAX
+                } else {
+                    ((seg_end + 1).saturating_sub(pos)) as usize
+                };
+                if room == 0 {
+                    break; // stolen mid-flight; the thief owns the rest now
+                }
+                let take = room.min(chunk.len());
+                if let Err(e) = write_at(&mut file, pos, &chunk[..take]) {
+                    *sh.failed.lock().await = Some(format!("write: {e}"));
+                    return;
+                }
+                pos += take as u64;
+                let total_done = {
+                    let mut st = sh.state.lock().await;
+                    st.segments[idx].done = pos - seg_start;
+                    let t = st.total_done();
+                    t
+                };
                 let due = { sh.last_detail.lock().await.map(|i| i.elapsed() >= Duration::from_millis(400)).unwrap_or(true) };
                 if due {
                     let snap = {
@@ -454,38 +474,84 @@ async fn segment_task(
                     *sh.last_detail.lock().await = Some(Instant::now());
                     ev.send(Progress::Detail { segments: snap }).await.ok();
                 }
+                let size_now = { sh.state.lock().await.size };
+                ev.send(Progress::Bytes { delta: take as u64, total_done, size: size_now })
+                    .await
+                    .ok();
             }
-            ev.send(Progress::Bytes { delta: chunk.len() as u64, total_done, size: sh.state.lock().await.size })
-                .await
-                .ok();
+            // Stream ended: verify segment coverage.
+            let (complete, remaining) = {
+                let st = sh.state.lock().await;
+                let s = &st.segments[idx];
+                (s.remaining() == 0 || s.end == u64::MAX, s.remaining())
+            };
+            if complete {
+                let mut st = sh.state.lock().await;
+                if st.segments[idx].end == u64::MAX && st.segments[idx].done > 0 {
+                    // unknown total size: finalize length from what we got
+                    st.size = Some(st.total_done());
+                    st.segments[idx].end = st.segments[idx].start + st.segments[idx].done - 1;
+                }
+                ev.send(Progress::SegmentDone { index: idx }).await.ok();
+                break; // -> steal phase
+            }
+            {
+                let msg = format!("seg {idx} short read, {remaining}B missing");
+                if !retry(sh.clone(), idx, retries, msg, &ev).await {
+                    return;
+                }
+            }
         }
-        // Stream ended: verify segment coverage.
-        let (complete, remaining) = {
-            let st = sh.state.lock().await;
-            let s = &st.segments[idx];
-            (s.remaining() == 0 || s.end == u64::MAX, s.remaining())
-        };
-        if complete {
-            let mut st = sh.state.lock().await;
-            if st.segments[idx].end == u64::MAX && st.segments[idx].done > 0 {
-                // unknown total size: finalize length from what we got
-                st.size = Some(st.total_done());
-                st.segments[idx].end = st.segments[idx].start + st.segments[idx].done - 1;
-            }
-            ev.send(Progress::SegmentDone { index: idx }).await.ok();
-            return;
-        }
-        if remaining > 0 && stream.next().await.is_none() {
-            let msg = format!("seg {idx} short read, {remaining}B missing");
-            if !retry(sh.clone(), idx, retries, msg, &ev).await {
-                return;
-            }
+        match steal(&sh, idx).await {
+            Some(next) => idx = next,
+            None => return, // nothing left worth stealing; this connection is done
         }
     }
 }
 
+/// IDM-style work stealing: take the upper half of the *remaining* bytes of
+/// the largest incomplete segment and append it as a fresh segment.
+async fn steal(sh: &Shared, from: usize) -> Option<usize> {
+    let mut st = sh.state.lock().await;
+    let best = st
+        .segments
+        .iter()
+        .enumerate()
+        .filter(|(i, s)| *i != from && s.remaining() > 0)
+        .map(|(i, s)| (i, s.remaining()))
+        .max_by_key(|&(_, r)| r)?;
+    let (j, rem) = best;
+    let (new_end, seg) = split_remaining(&st.segments[j], MIN_STEAL)?;
+    st.segments[j].end = new_end;
+    st.segments.push(seg);
+    let ni = st.segments.len() - 1;
+    let mut attempts = sh.attempts.lock().await;
+    if attempts.len() < ni + 1 {
+        attempts.resize(ni + 1, 0);
+    }
+    Some(ni)
+}
+
+/// Split what is left of `s` in half; returns (new end for `s`, stolen segment).
+fn split_remaining(s: &crate::state::Segment, min_stolen: u64) -> Option<(u64, crate::state::Segment)> {
+    let rem = s.remaining();
+    if rem < min_stolen.saturating_mul(2) {
+        return None; // halves would be too small to matter
+    }
+    let off = s.offset();
+    let mid = off + rem / 2;
+    Some((mid - 1, crate::state::Segment { start: mid, end: s.end, done: 0 }))
+}
+
 async fn retry(sh: Arc<Shared>, idx: usize, retries: u32, msg: String, ev: &mpsc::Sender<Progress>) -> bool {
-    let n = sh.attempts[idx].fetch_add(1, Ordering::SeqCst) + 1;
+    let n = {
+        let mut v = sh.attempts.lock().await;
+        if v.len() <= idx {
+            v.resize(idx + 1, 0);
+        }
+        v[idx] += 1;
+        v[idx]
+    };
     if n > retries {
         *sh.failed.lock().await = Some(msg);
         return false;
@@ -498,4 +564,38 @@ async fn retry(sh: Arc<Shared>, idx: usize, retries: u32, msg: String, ev: &mpsc
 fn write_at(f: &mut std::fs::File, pos: u64, buf: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::FileExt;
     f.write_all_at(buf, pos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::Segment;
+
+    fn seg(start: u64, end: u64, done: u64) -> Segment {
+        Segment { start, end, done }
+    }
+
+    #[test]
+    fn split_remaining_covers_exactly() {
+        // 10 MiB remaining, 3 MiB already done
+        let s = seg(0, 10 * 1024 * 1024 - 1, 3 * 1024 * 1024);
+        let (new_end, stolen) = split_remaining(&s, MIN_STEAL).expect("should split");
+        let owner = seg(s.start, new_end, s.done);
+        assert_eq!(owner.remaining() + stolen.len(), s.remaining());
+        assert_eq!(stolen.start - 1, new_end);
+        assert_eq!(stolen.end, s.end);
+        assert_eq!(stolen.done, 0);
+        // halves are roughly equal and never below the minimum
+        assert!(owner.remaining() >= MIN_STEAL && stolen.remaining() >= MIN_STEAL);
+    }
+
+    #[test]
+    fn split_remaining_refuses_tiny() {
+        let s = seg(0, 2 * MIN_STEAL, 0); // exactly 2 MiB + 1 B: halves >= 1 MiB, ok
+        assert!(split_remaining(&s, MIN_STEAL).is_some());
+        let tiny = seg(0, 2 * MIN_STEAL - 2, 0); // 2 MiB - 1 B remaining
+        assert!(split_remaining(&tiny, MIN_STEAL).is_none());
+        let done = seg(0, 2 * MIN_STEAL + 10, 2 * MIN_STEAL); // 11 bytes left
+        assert!(split_remaining(&done, MIN_STEAL).is_none());
+    }
 }

@@ -113,7 +113,7 @@ async fn run_ytdlp(args: &[&str], timeout: Duration) -> Result<String> {
             bail!("yt-dlp timed out after {}s", timeout.as_secs())
         }
         Ok(Ok(st)) if st.success() && usable => Ok(out),
-        Ok(Ok(_)) | Err(_) if usable => Ok(out),
+        Ok(Ok(_)) if usable => Ok(out),
         _ => {
             let tail = err.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
             let msg = if tail.is_empty() { "yt-dlp failed without output".into() } else { tail };

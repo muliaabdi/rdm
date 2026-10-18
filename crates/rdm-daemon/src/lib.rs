@@ -638,6 +638,7 @@ async fn stop_job(app: &Arc<App>, id: u64, intent: &'static str) -> Result<()> {
 }
 
 async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
+    eprintln!("resume_job id={id}: enter");
     // a just-paused job may still be tearing down; wait briefly for it
     for _ in 0..30 {
         if !app.ctl.lock().unwrap().contains_key(&id) {
@@ -648,9 +649,11 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
     if app.ctl.lock().unwrap().contains_key(&id) {
         bail!("job {id} is still running");
     }
+    eprintln!("resume_job id={id}: ctl clear");
     let Some(spec) = app.db_get_spec(id) else {
         bail!("no spec for job {id}");
     };
+    eprintln!("resume_job id={id}: spec ok");
     let offer: Offer = serde_json::from_str(&spec).context("corrupt spec")?;
     if restart {
         let (_, out_path, _) = build_job(&offer)?;
@@ -665,6 +668,7 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
     };
     app.db_update(id, 0, "running", None, None);
     spawn_job(app.clone(), id, runner).await;
+    eprintln!("resume_job id={id}: spawned");
     Ok(())
 }
 
