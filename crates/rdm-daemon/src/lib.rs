@@ -539,7 +539,7 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
             move |db| {
                 db.execute(
                     "INSERT INTO jobs(id,url,filename,out_path,size,done,status,error,created,updated,spec) \
-                     VALUES(?1,?2,?3,?4,NULL,0,'running',NULL,?5,?5,?6)",
+                     VALUES(?1,?2,?3,?4,NULL,0,'resolving',NULL,?5,?5,?6)",
                     rusqlite::params![id as i64, url, fname, out_path, now, spec],
                 )?;
                 Ok(())
@@ -800,6 +800,7 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, mut kill_rx: watch::Rece
         let _ = app.events.send(json!({"t":status,"id":id,"done":0,"error":err}).to_string());
     };
     let _ = app.events.send(json!({"t":"started","id":id,"size":null}).to_string());
+    let _ = app.events.send(json!({"t":"status","id":id,"status":"resolving"}).to_string());
 
     let info = match ytdlp::extract(&offer.url, offer.cookie.as_deref(), offer.ua.as_deref()).await {
         Ok(i) => i,
@@ -835,6 +836,9 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, mut kill_rx: watch::Rece
             Ok(())
         });
     }
+    // resolved: real filename + format known, switch from resolving to running
+    app.db_update(id, 0, "running", None, None);
+    let _ = app.events.send(json!({"t":"status","id":id,"status":"running"}).to_string());
 
     // phase 1: video
     let gv: PhaseStat;

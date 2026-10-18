@@ -50,13 +50,39 @@ pub fn yt_dlp_bin() -> PathBuf {
     PathBuf::from("yt-dlp")
 }
 
+/// yt-dlp needs a JS runtime (node) for YouTube signatures and ffmpeg for
+/// muxing; the daemon may run with a minimal PATH, so add the usual suspects.
+fn tool_path() -> String {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        let nvm = PathBuf::from(&home).join(".nvm/versions/node");
+        if let Ok(rd) = std::fs::read_dir(&nvm) {
+            let mut vs: Vec<String> = rd
+                .flatten()
+                .filter(|e| e.path().join("bin").is_dir())
+                .map(|e| e.path().join("bin").to_string_lossy().to_string())
+                .collect();
+            vs.sort();
+            dirs.extend(vs);
+        }
+    }
+    dirs.push("/usr/local/bin".into());
+    dirs.push("/usr/bin".into());
+    dirs.push("/bin".into());
+    dirs.push(std::env::var("PATH").unwrap_or_default());
+    dirs.join(":")
+}
+
 async fn run_ytdlp(args: &[&str], timeout: Duration) -> Result<String> {
     let bin = yt_dlp_bin();
     let mut cmd = tokio::process::Command::new(&bin);
     cmd.args(args)
+        .env("PATH", tool_path())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        // never leak a hung yt-dlp if the future is dropped mid-wait
+        .kill_on_drop(true);
     let mut child = cmd.spawn().with_context(|| format!("spawn {}", bin.display()))?;
     let mut so = child.stdout.take().unwrap();
     let mut se = child.stderr.take().unwrap();
@@ -73,13 +99,21 @@ async fn run_ytdlp(args: &[&str], timeout: Duration) -> Result<String> {
         let _ = txe.send(s);
     });
     let wait = tokio::time::timeout(timeout, child.wait()).await;
-    let out = tokio::time::timeout(Duration::from_secs(5), ro).await;
-    let err = tokio::time::timeout(Duration::from_secs(5), re).await;
-    let out = out.ok().and_then(|r| r.ok()).unwrap_or_default();
-    let err = err.ok().and_then(|r| r.ok()).unwrap_or_default();
+    if wait.is_err() {
+        let _ = child.start_kill();
+    }
+    // give the readers a moment to drain whatever yt-dlp wrote before it died
+    let out = tokio::time::timeout(Duration::from_secs(5), ro).await.ok().and_then(|r| r.ok()).unwrap_or_default();
+    let err = tokio::time::timeout(Duration::from_secs(5), re).await.ok().and_then(|r| r.ok()).unwrap_or_default();
+    // yt-dlp prints `null` on stdout when extraction fails outright
+    let usable = !out.trim().is_empty() && out.trim() != "null";
     match wait {
-        Ok(Ok(st)) if st.success() && !out.is_empty() => Ok(out),
-        Ok(Ok(_)) | Err(_) if !out.is_empty() => Ok(out),
+        Err(_) => {
+            let _ = child.wait().await;
+            bail!("yt-dlp timed out after {}s", timeout.as_secs())
+        }
+        Ok(Ok(st)) if st.success() && usable => Ok(out),
+        Ok(Ok(_)) | Err(_) if usable => Ok(out),
         _ => {
             let tail = err.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
             let msg = if tail.is_empty() { "yt-dlp failed without output".into() } else { tail };
@@ -114,6 +148,9 @@ struct RawInfo {
 pub async fn extract(page_url: &str, cookie: Option<&str>, ua: Option<&str>) -> Result<ExtractInfo> {
     let mut args: Vec<String> = vec![
         "-J".into(),
+        // IPv6 to YouTube black-holes on some networks and stalls extraction
+        // for minutes; IPv4 resolves the page in ~2s
+        "--force-ipv4".into(),
         "--no-playlist".into(),
         "--no-warnings".into(),
         page_url.into(),

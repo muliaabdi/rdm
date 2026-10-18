@@ -109,7 +109,7 @@
   .row > div { padding: 0 6px; overflow: hidden; white-space: nowrap; }
   .num, .st, .dim { text-align: right; font-variant-numeric: tabular-nums; }
   .st.running { color: var(--green); }
-  .st.confirming { color: var(--dim); }
+  .st.confirming, .st.resolving { color: var(--dim); }
   .st.paused { color: var(--amber); }
   .st.failed { color: var(--red); }
   .st.completed { color: #0a5d0e; }
@@ -129,13 +129,14 @@
   .dt-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; min-width: 0; }
   .dt-head .dt-name { font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
   .dt-head .dt-st { margin-left: auto; flex: none; font-size: 11px; }
-  .barrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .bigbar { position: relative; flex: 1; height: 14px; overflow: hidden;
+  /* percent sits inside the bar so the bar keeps the full dialog width */
+  .bigbar { position: relative; height: 16px; margin-bottom: 10px; overflow: hidden;
     background: var(--track); border-radius: 999px; }
   .bigbar > .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
     transition: width .45s linear, background-color .2s; }
-  .bigpct { flex: none; min-width: 48px; text-align: right; font-size: 11px; color: var(--dim);
-    font-variant-numeric: tabular-nums; }
+  .bigpct { position: absolute; right: 10px; top: 0; height: 100%; display: flex; align-items: center;
+    font-size: 10.5px; color: #3f454b; font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 3px #fff, 0 0 2px #fff, 0 0 1px #fff; }
   .errline { display: none; margin: 0 0 10px; color: var(--red); font-size: 11px;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
   .errline.on { display: block; }
@@ -344,7 +345,7 @@ const I18N = {
     err_not_connected: "not connected to the daemon",
     fld_intercept: "Intercept types", ph_intercept: "empty = all · zip, rar, exe, pdf",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
-    col_url: "URL", st_confirming: "Waiting",
+    col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
   },
   id: {
     add_url: "Tambah URL", resume: "Lanjutkan", stop: "Stop", delete: "Hapus",
@@ -377,7 +378,7 @@ const I18N = {
     err_not_connected: "belum terhubung ke daemon",
     fld_intercept: "Jenis interupsi", ph_intercept: "kosong = semua · zip, rar, exe, pdf",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
-    col_url: "URL", st_confirming: "Menunggu",
+    col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
   },
 };
 let lang = "en";
@@ -692,6 +693,7 @@ function statusLabel(j) {
     j.status === "cancelled" ? t("st_cancelled") :
     j.status === "queued" ? t("st_queued") :
     j.status === "confirming" ? t("st_confirming") :
+    j.status === "resolving" ? t("st_resolving") :
     j.status === "running" ? Math.round(pct) + " %" : j.status;
 }
 
@@ -733,7 +735,7 @@ function openDetails(id) {
       <div class="dt-name" id="dt-name"></div>
       <div class="dt-st st" id="dt-st"></div>
     </div>
-    <div class="barrow"><div class="bigbar"><div class="fill" id="dt-fill"></div></div><span class="bigpct" id="dt-pct"></span></div>
+    <div class="bigbar"><div class="fill" id="dt-fill"></div><span class="bigpct" id="dt-pct"></span></div>
     <div class="errline" id="dt-err"></div>
     <div class="dgrid">
       <div class="k">${t("col_file")}</div><div class="v" id="dt-file"></div>
@@ -794,9 +796,9 @@ function updateDetails() {
   $("dt-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
   const tog = $("dt-toggle");
   if (tog) {
-    const done = j.status === "completed";
-    tog.hidden = done; // nothing to resume on a finished download
-    if (!done) tog.textContent = j.status === "running" ? t("stop") : t("resume");
+    const idle = j.status === "completed" || j.status === "resolving";
+    tog.hidden = idle; // nothing to pause/resume once finished or still resolving
+    if (!idle) tog.textContent = j.status === "running" ? t("stop") : t("resume");
   }
   paintGraph($("dt-graph"), detailSeries());
 }
@@ -892,6 +894,7 @@ listen("rdm", (ev) => {
     case "formats": if (window.__onFormats) window.__onFormats(m); break;
     case "error": if (window.__onFormats) { const f = window.__onFormats; window.__onFormats = null; f({ __err: m.error }); } else diag("daemon error: " + m.error); break;
     case "started": apply({ id: m.id, size: m.size }); break;
+    case "status": apply({ id: m.id, status: m.status }); renderRows(); break;
     case "progress": apply({ id: m.id, done: m.done, size: m.size, status: "running" }); break;
     case "detail":
       if (!detailSeen) { detailSeen = true; diag("detail segments received"); }
