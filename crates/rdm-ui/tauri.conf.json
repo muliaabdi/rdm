@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "rdm",
+  "version": "0.1.0",
+  "identifier": "com.rdm.ui",
+  "build": { "frontendDist": "ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "title": "RDM", "width": 480, "height": 680, "resizable": true }],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false }
+}

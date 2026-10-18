@@ -1,0 +1,171 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #1e1f24; color: #e8eaed; }
+  header { display: flex; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #3c4043; }
+  header input[type=text] { flex: 1; background: #2b2d32; border: 1px solid #3c4043; color: #e8eaed;
+    border-radius: 8px; padding: 8px 10px; font: inherit; outline: none; }
+  header button { background: #1a73e8; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px;
+    font: inherit; cursor: pointer; }
+  header button:hover { filter: brightness(1.1); }
+  #bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; color: #9aa0a6; font-size: 12px; }
+  #bar button { background: none; border: 1px solid #5f6368; color: #9aa0a6; border-radius: 6px;
+    padding: 3px 10px; cursor: pointer; font-size: 12px; }
+  #settings { display: none; padding: 10px 14px; border-bottom: 1px solid #3c4043; gap: 8px; }
+  #settings.open { display: flex; }
+  #settings input { background: #2b2d32; border: 1px solid #3c4043; color: #e8eaed; border-radius: 6px;
+    padding: 6px 8px; font: inherit; }
+  #settings input#seg { width: 64px; }
+  #settings input#dir { flex: 1; }
+  #jobs { overflow-y: auto; max-height: calc(100vh - 132px); }
+  .job { padding: 10px 14px; border-bottom: 1px solid #2b2d32; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+  .pct { color: #9aa0a6; font-variant-numeric: tabular-nums; }
+  .bar { height: 5px; background: #3c4043; border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: #1a73e8; width: 0; transition: width .2s; }
+  .st { margin-top: 4px; font-size: 12px; color: #9aa0a6; }
+  .done .bar > i { background: #34a853; }
+  .failed .bar > i { background: #ea4335; }
+  .empty { padding: 32px 14px; text-align: center; color: #9aa0a6; }
+  .err { color: #ea4335; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #3c4043;
+    padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <input type="text" id="url" placeholder="Tempel URL unduhan…" />
+  <button id="add">Unduh</button>
+</header>
+<div id="bar">
+  <span id="conn">menghubungkan…</span>
+  <button id="cfg">Pengaturan</button>
+</div>
+<div id="settings">
+  <input type="text" id="dir" placeholder="Folder simpan (default ~/Downloads)" />
+  <input type="number" id="seg" min="1" max="32" value="8" title="Jumlah segmen" />
+  <button id="save">Simpan</button>
+</div>
+<div id="jobs"><div class="empty">tidak ada job</div></div>
+<div id="toast"></div>
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const jobs = new Map();
+let connected = false;
+
+const $ = (id) => document.getElementById(id);
+
+function fmt(n) {
+  if (n == null) return "?";
+  if (n >= 1 << 30) return (n / (1 << 30)).toFixed(1) + " GB";
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + " MB";
+  if (n >= 1 << 10) return (n / (1 << 10)).toFixed(0) + " KB";
+  return n + " B";
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function render() {
+  const box = $("jobs");
+  if (!jobs.size) {
+    box.innerHTML = '<div class="empty">tidak ada job</div>';
+    return;
+  }
+  box.innerHTML = [...jobs.values()]
+    .sort((a, b) => b.id - a.id)
+    .map((j) => {
+      const pct = j.size ? Math.min(100, Math.round((j.done / j.size) * 100)) : 0;
+      const cls = j.status === "completed" ? "done" : j.status === "failed" ? "failed" : "";
+      const label =
+        j.status === "completed" ? "selesai" :
+        j.status === "failed" ? "gagal" :
+        j.status === "cancelled" ? "dibatalkan" :
+        j.status === "running" ? `${fmt(j.done)} / ${fmt(j.size)} · ${pct}%` : j.status;
+      return `<div class="job ${cls}">
+        <div class="row"><span class="name" title="${esc(j.out_path || j.filename)}">${esc(j.filename)}</span><span class="pct">${pct}%</span></div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <div class="st">${label}${j.error ? ` · <span class="err">${esc(j.error)}</span>` : ""}</div>
+      </div>`;
+    })
+    .join("");
+}
+
+function apply(v) {
+  const j = jobs.get(v.id) || { id: v.id, filename: "?", done: 0, size: null, status: "running" };
+  for (const k of ["filename", "out_path", "size", "done", "status", "error"]) {
+    if (v[k] != null) j[k] = v[k];
+  }
+  jobs.set(v.id, j);
+  render();
+}
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+listen("rdm", (ev) => {
+  const m = ev.payload;
+  switch (m.t) {
+    case "disconnected": connected = false; $("conn").textContent = "terputus…"; break;
+    case "jobs":
+      jobs.clear();
+      for (const j of m.jobs || []) apply(j);
+      if (!connected) { connected = true; $("conn").textContent = "terhubung"; }
+      break;
+    case "accepted": apply({ id: m.id, status: "running" }); break;
+    case "started": apply({ id: m.id, size: m.size }); break;
+    case "progress": apply({ id: m.id, done: m.done, size: m.size, status: "running" }); break;
+    case "done": apply({ id: m.id, done: m.size, size: m.size, status: "completed" }); break;
+    case "failed": apply({ id: m.id, status: "failed", error: m.error }); break;
+    case "cancelled": apply({ id: m.id, status: "cancelled" }); break;
+  }
+});
+
+$("add").onclick = async () => {
+  const url = $("url").value.trim();
+  if (!url) return;
+  try {
+    await invoke("add_url", { url });
+    $("url").value = "";
+    toast("ditambahkan");
+  } catch (e) {
+    toast(String(e));
+  }
+};
+$("url").addEventListener("keydown", (e) => e.key === "Enter" && $("add").click());
+
+$("cfg").onclick = async () => {
+  const p = $("settings");
+  if (!p.classList.contains("open")) {
+    const s = await invoke("get_settings");
+    $("dir").value = s.dir || "";
+    $("seg").value = s.segments || 8;
+  }
+  p.classList.toggle("open");
+};
+
+$("save").onclick = async () => {
+  await invoke("set_settings", {
+    v: { dir: $("dir").value.trim() || null, segments: Number($("seg").value) || 8 },
+  });
+  $("settings").classList.remove("open");
+  toast("tersimpan");
+};
+
+invoke("list_jobs").catch(() => {});
+setInterval(() => invoke("list_jobs").catch(() => {}), 5000);
+</script>
+</body>
+</html>

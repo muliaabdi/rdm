@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/rdm-core", "crates/rdm-cli", "crates/rdm-daemon", "crates/rdm-host"]
+members = ["crates/rdm-core", "crates/rdm-cli", "crates/rdm-daemon", "crates/rdm-host", "crates/rdm-ui"]
 
 [workspace.package]
 version = "0.1.0"

@@ -1,0 +1,17 @@
+[package]
+name = "rdm-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "RDM desktop UI (Tauri)"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rdm-daemon = { path = "../rdm-daemon" }
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
