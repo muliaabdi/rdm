@@ -231,6 +231,10 @@
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
   #dlg .fld input.narrow { flex: 0 0 108px; }
   #dlg .fld input.chk { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #2b6cff; }
+  #dlg .ftypes { flex: 1; display: flex; flex-wrap: wrap; gap: 7px 4px; }
+  #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: #3c4046; cursor: pointer; }
+  #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
+  #dlg .ftypes.all .fchk:nth-child(n+2) { opacity: .4; }
 
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -357,7 +361,11 @@ const I18N = {
     err_not_connected: "not connected to the daemon",
     err_gone_file: "File no longer exists on disk", err_gone_folder: "Folder no longer exists",
     err_no_opener: "No app found to open this",
-    fld_intercept: "Intercept types", ph_intercept: "empty = all · zip, rar, exe, pdf",
+    fld_ftype: "Files type", fld_extra: "Extra types",
+    ft_all: "All files", ft_images: "Images", ft_videos: "Videos", ft_audio: "Audio",
+    ft_docs: "Documents", ft_apps: "Apps", ft_arch: "Archives", ft_others: "Others",
+    ft_empty_all: "No types selected — intercepting all files",
+    ph_intercept: "custom, e.g. bin dat",
     fld_autostart: "Start with system",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
     col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
@@ -394,7 +402,11 @@ const I18N = {
     err_not_connected: "belum terhubung ke daemon",
     err_gone_file: "Berkas sudah tidak ada di disk", err_gone_folder: "Folder sudah tidak ada",
     err_no_opener: "Tidak ada aplikasi untuk membuka ini",
-    fld_intercept: "Jenis interupsi", ph_intercept: "kosong = semua · zip, rar, exe, pdf",
+    fld_ftype: "Jenis berkas", fld_extra: "Jenis tambahan",
+    ft_all: "Semua berkas", ft_images: "Gambar", ft_videos: "Video", ft_audio: "Audio",
+    ft_docs: "Dokumen", ft_apps: "Aplikasi", ft_arch: "Arsip", ft_others: "Lainnya",
+    ft_empty_all: "Tidak ada jenis dipilih — semua berkas diintersep",
+    ph_intercept: "tambahan, mis. bin dat",
     fld_autostart: "Mulai saat login",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
     col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
@@ -458,7 +470,8 @@ async function setLang(next) {
 /* ---------- state ---------- */
 const jobs = new Map();          // id -> job {id,url,filename,out_path,size,done,status,error,segs,speed}
 const speeds = new Map();        // id -> [{t,done}]
-const jobHist = new Map();       // id -> [{v}] speed samples (running jobs)
+const jobHist = new Map();       // id -> [{v, seg}] speed samples (running jobs), seg = per-segment B/s
+const segPrev = new Map();       // id -> {t, arr:[done per segment index]} previous detail snapshot
 let selected = null;
 let cat = "all";
 let connected = false;
@@ -766,7 +779,7 @@ function openConfirm(m) {
 /* ---------- details dialog (IDM-style, opened by double-click) ---------- */
 let detailsFor = null;
 function detailSeries() {
-  return (jobHist.get(detailsFor) || []).map((p) => p.v);
+  return jobHist.get(detailsFor) || [];
 }
 function openDetails(id) {
   const j = jobs.get(id);
@@ -852,8 +865,12 @@ function renderStatus() {
 }
 
 /* ---------- graph ---------- */
-/* ---------- graph ---------- */
-function paintGraph(cv, series) {
+/// Distinct hue per segment index; 47 is coprime to 360 so up to ~30 bands
+/// stay visually apart. Segment indices are stable across dynamic splits.
+function segColor(i, a) {
+  return `hsla(${(i * 47 + 8) % 360},60%,50%,${a})`;
+}
+function paintGraph(cv, samples) {
   if (!cv || !cv.getContext) return;
   const ctx = cv.getContext("2d");
   const r = cv.getBoundingClientRect();
@@ -862,7 +879,8 @@ function paintGraph(cv, series) {
   const h = Math.max(24, Math.round(r.height * dpr));
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   ctx.clearRect(0, 0, w, h);
-  const max = Math.max(1024, ...series) * 1.15;
+  const vals = samples.map((s) => s.v);
+  const max = Math.max(1024, ...vals) * 1.15;
   ctx.strokeStyle = "#e7e4d6";
   ctx.lineWidth = 1;
   const step = 34 * dpr;
@@ -870,24 +888,58 @@ function paintGraph(cv, series) {
   for (let y = step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
   ctx.strokeStyle = "#d5d2c2";
   ctx.beginPath(); ctx.moveTo(0, h - 1); ctx.lineTo(w, h - 1); ctx.stroke();
-  const peak = Math.max(0, ...series);
-  if (peak >= 1 && series.length > 1) {
-    ctx.beginPath();
-    series.forEach((v, i) => {
-      const x = (i / (series.length - 1)) * w;
-      const y = h - (v / max) * (h - 4 * dpr) - 2 * dpr;
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    });
-    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-    ctx.fillStyle = "rgba(87,184,92,.30)";
-    ctx.fill();
-    ctx.strokeStyle = "#2e8b30"; ctx.lineWidth = 1.5 * dpr;
-    ctx.lineJoin = "round";
-    ctx.stroke();
+  const peak = Math.max(0, ...vals);
+  if (peak >= 1 && samples.length > 1) {
+    const n = samples.length;
+    const x = (i) => (i / (n - 1)) * w;
+    const y = (v) => h - (v / max) * (h - 4 * dpr) - 2 * dpr;
+    const maxSeg = samples.reduce((m, s) => Math.max(m, s.seg ? s.seg.length : 0), 0);
+    if (maxSeg > 1) {
+      // stacked bands: one colored area per segment, total = outline on top
+      const cums = samples.map((sm) => {
+        const a = [0];
+        (sm.seg || []).forEach((v) => a.push(a[a.length - 1] + v));
+        return a;
+      });
+      for (let s = 0; s < maxSeg; s++) {
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) { const yy = y(cums[i][s + 1] || 0); i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy); }
+        for (let i = n - 1; i >= 0; i--) ctx.lineTo(x(i), y(cums[i][s] || 0));
+        ctx.closePath();
+        ctx.fillStyle = segColor(s, 0.6);
+        ctx.fill();
+      }
+      ctx.beginPath();
+      samples.forEach((sm, i) => { const yy = y(sm.v); i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy); });
+      ctx.strokeStyle = "#2e8b30"; ctx.lineWidth = 1.5 * dpr;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+      ctx.fillStyle = "#7a7a7a";
+      ctx.font = `${10 * dpr}px system-ui, sans-serif`;
+      ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
+      const lbl = `${maxSeg} seg`;
+      ctx.fillText(lbl, w - ctx.measureText(lbl).width - 4 * dpr, 10 * dpr);
+    } else {
+      ctx.beginPath();
+      vals.forEach((v, i) => {
+        const yy = y(v);
+        i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy);
+      });
+      ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+      ctx.fillStyle = "rgba(87,184,92,.30)";
+      ctx.fill();
+      ctx.strokeStyle = "#2e8b30"; ctx.lineWidth = 1.5 * dpr;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+      ctx.fillStyle = "#7a7a7a";
+      ctx.font = `${10 * dpr}px system-ui, sans-serif`;
+      ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
+    }
+  } else {
+    ctx.fillStyle = "#7a7a7a";
+    ctx.font = `${10 * dpr}px system-ui, sans-serif`;
+    ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
   }
-  ctx.fillStyle = "#7a7a7a";
-  ctx.font = `${10 * dpr}px system-ui, sans-serif`;
-  ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
 }
 
 /* ---------- events from daemon ---------- */
@@ -917,7 +969,7 @@ listen("rdm", (ev) => {
     case "jobs":
       if (!connected) { connected = true; diag("jobs n=" + (m.jobs || []).length); setConn("ok"); }
       const seen = new Set((m.jobs || []).map((x) => x.id));
-      for (const id of [...jobs.keys()]) if (!seen.has(id)) { jobs.delete(id); speeds.delete(id); }
+      for (const id of [...jobs.keys()]) if (!seen.has(id)) { jobs.delete(id); speeds.delete(id); segPrev.delete(id); jobHist.delete(id); }
       for (const j of m.jobs || []) apply(j);
       // opened late (e.g. auto-launched by a browser offer): highlight the newest running job
       if (selected == null || !jobs.has(selected)) {
@@ -946,19 +998,33 @@ listen("rdm", (ev) => {
     case "failed": apply({ id: m.id, status: "failed", error: m.error }); break;
     case "paused": apply({ id: m.id, status: "paused" }); break;
     case "cancelled": apply({ id: m.id, status: "cancelled" }); break;
-    case "deleted": jobs.delete(m.id); speeds.delete(m.id); if (selected === m.id) selected = null;
+    case "deleted": jobs.delete(m.id); speeds.delete(m.id); segPrev.delete(m.id); jobHist.delete(m.id); if (selected === m.id) selected = null;
       renderCats(); renderRows(); break;
   }
 });
 
 setInterval(() => {
+  const now = performance.now();
   for (const j of jobs.values()) {
     if (j.status === "running") {
       j.speed = sampleSpeed(j.id, j.done);
       let h = jobHist.get(j.id);
       if (!h) { h = []; jobHist.set(j.id, h); }
-      h.push({ v: j.speed || 0 });
+      // per-segment speed from consecutive detail snapshots (~400 ms cadence)
+      let seg = null;
+      if (j.segs && j.segs.length) {
+        const cur = j.segs.map((s) => s.done);
+        const p = segPrev.get(j.id);
+        const dt = p ? (now - p.t) / 1000 : 0;
+        if (p && dt >= 0.2) {
+          seg = cur.map((d, i) => Math.max(0, (d - (p.arr[i] ?? 0)) / dt));
+        }
+        segPrev.set(j.id, { t: now, arr: cur });
+      }
+      h.push({ v: seg ? seg.reduce((a, b) => a + b, 0) : (j.speed || 0), seg });
       if (h.length > 120) h.shift();
+    } else if (segPrev.has(j.id)) {
+      segPrev.delete(j.id);
     }
   }
   renderRows();
@@ -1066,25 +1132,55 @@ $("b-restart").onclick = () => selected && invoke("job_action", { action: "resta
 // Details opens by double-click, Enter or the row context menu
 $("rows").addEventListener("keydown", (e) => e.key === "Enter" && document.activeElement.classList.contains("row") && openDetails(+document.activeElement.dataset.id));
 
+/* ---------- file-type groups for the intercept filter ---------- */
+const FTYPES = [
+  ["images", "ft_images", "jpg jpeg png gif webp bmp svg ico tiff avif heic"],
+  ["videos", "ft_videos", "mp4 mkv avi mov webm flv wmv m4v mpg mpeg ts 3gp"],
+  ["audio", "ft_audio", "mp3 wav flac aac ogg opus m4a wma mid"],
+  ["docs", "ft_docs", "pdf doc docx xls xlsx ppt pptx txt rtf odt ods odp csv epub mobi"],
+  ["apps", "ft_apps", "exe msi apk deb rpm appimage flatpak snap dmg pkg jar"],
+  ["arch", "ft_arch", "zip rar 7z tar gz bz2 xz zst lz lzma cab iso img"],
+  ["others", "ft_others", "torrent bin dat m3u8 mpd nfo srt"],
+];
+const EXT2CAT = new Map(FTYPES.flatMap(([id, , str]) => str.split(" ").map((x) => [x, id])));
+
 $("b-options").onclick = async () => {
   const s = await invoke("get_settings");
   const auto = await invoke("get_autostart").catch(() => !!s.autostart);
+  const list = s.intercept_ext || [];
+  const allOn = list.length === 0;
+  const extras = list.filter((x) => !EXT2CAT.has(x)).join(", ");
   openModal(`<h3>${t("dlg_settings_title")}</h3>
     <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
     <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
-    <div class="fld"><label>${t("fld_intercept")}</label><input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc((s.intercept_ext || []).join(", "))}" spellcheck="false" autocomplete="off"></div>
+    <div class="fld"><label>${t("fld_ftype")}</label>
+      <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
+        <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
+        ${FTYPES.map(([id, key, str]) => `<label class="fchk"><input type="checkbox" id="ft-${id}"${str.split(" ").every((x) => list.includes(x)) ? " checked" : ""}${allOn ? " disabled" : ""}><span>${t(key)}</span></label>`).join("")}
+      </div></div>
+    <div class="fld"><label>${t("fld_extra")}</label><input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc(extras)}" spellcheck="false" autocomplete="off"></div>
     <div class="fld"><label>${t("fld_lang")}</label><select id="o-lang">
       <option value="en"${lang === "en" ? " selected" : ""}>English</option>
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
     <div class="fld"><label>${t("fld_autostart")}</label><input id="o-auto" class="chk" type="checkbox"${auto ? " checked" : ""}></div>
     <div class="btns"><button id="o-cancel">${t("btn_cancel")}</button><button id="o-ok" class="pri">${t("btn_save")}</button></div>`);
   $("o-cancel").onclick = closeModal;
+  $("ft-all").onchange = () => {
+    const on = $("ft-all").checked;
+    $("ft-box").classList.toggle("all", on);
+    for (const [id] of FTYPES) $("ft-" + id).disabled = on;
+  };
   $("o-ok").onclick = async () => {
     const next = $("o-lang").value;
-    const ints = [...new Set(($("o-int").value || "")
+    let ints = [];
+    if (!$("ft-all").checked)
+      for (const [id, , str] of FTYPES) if ($("ft-" + id).checked) ints.push(...str.split(" "));
+    ints.push(...(($("o-int").value || "")
       .split(/[,;\s]+/)
       .map((x) => x.replace(/^\./, "").toLowerCase())
-      .filter((x) => /^[a-z0-9]{1,8}$/.test(x)))];
+      .filter((x) => /^[a-z0-9]{1,8}$/.test(x))));
+    ints = [...new Set(ints)];
+    if (!$("ft-all").checked && ints.length === 0) toast(t("ft_empty_all"));
     const auto = $("o-auto").checked;
     await invoke("set_settings", {
       v: { dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8, lang: next, intercept_ext: ints, autostart: auto },

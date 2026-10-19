@@ -501,7 +501,7 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
     let runner = if offer.page.unwrap_or(false) {
         let dir = offer.dir.clone().map(PathBuf::from).unwrap_or_else(default_out_dir);
         std::fs::create_dir_all(&dir).ok();
-        RunnerSpec::Page(offer.clone())
+        RunnerSpec::Page(offer.clone(), false)
     } else {
         let (job, out_path, filename) = build_job(&offer)?;
         let confirming = offer.confirm.unwrap_or(false);
@@ -529,7 +529,7 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
         }
         RunnerSpec::Direct(job)
     };
-    if let RunnerSpec::Page(o) = &runner {
+    if let RunnerSpec::Page(o, _) = &runner {
         let url = o.url.clone();
         let dir = o.dir.clone().map(PathBuf::from).unwrap_or_else(default_out_dir);
         let fname = format!("{} — {}", host_of(&o.url), rdm_core::engine::sanitize_filename(&o.url));
@@ -601,7 +601,7 @@ fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
 
 enum RunnerSpec {
     Direct(Job),
-    Page(Offer),
+    Page(Offer, bool),
 }
 
 async fn spawn_job(app: Arc<App>, id: u64, runner: RunnerSpec) {
@@ -613,12 +613,29 @@ async fn spawn_job(app: Arc<App>, id: u64, runner: RunnerSpec) {
     });
 }
 
+/// Update status only - keeps `done`/`size` so a resumed job does not reset.
+fn db_status(app: &Arc<App>, id: u64, status: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    app.db_exec(move |db| {
+        db.execute(
+            "UPDATE jobs SET status=?1, error=NULL, updated=?2 WHERE id=?3",
+            rusqlite::params![status, now, id as i64],
+        )?;
+        Ok(())
+    });
+}
+
 async fn stop_job(app: &Arc<App>, id: u64, intent: &'static str) -> Result<()> {
     let mut ctl = app.ctl.lock().unwrap();
     if let Some(c) = ctl.get_mut(&id) {
         c.intent = intent;
         let _ = c.kill.send(true);
         drop(ctl);
+        // flip the UI immediately; the engine's terminal event confirms after
+        let _ = app.events.send(json!({"t":"status","id":id,"status":intent}).to_string());
         Ok(())
     } else {
         drop(ctl);
@@ -638,7 +655,6 @@ async fn stop_job(app: &Arc<App>, id: u64, intent: &'static str) -> Result<()> {
 }
 
 async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
-    eprintln!("resume_job id={id}: enter");
     // a just-paused job may still be tearing down; wait briefly for it
     for _ in 0..30 {
         if !app.ctl.lock().unwrap().contains_key(&id) {
@@ -649,11 +665,9 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
     if app.ctl.lock().unwrap().contains_key(&id) {
         bail!("job {id} is still running");
     }
-    eprintln!("resume_job id={id}: ctl clear");
     let Some(spec) = app.db_get_spec(id) else {
         bail!("no spec for job {id}");
     };
-    eprintln!("resume_job id={id}: spec ok");
     let offer: Offer = serde_json::from_str(&spec).context("corrupt spec")?;
     if restart {
         let (_, out_path, _) = build_job(&offer)?;
@@ -661,14 +675,18 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
         app.db_update(id, 0, "running", None, None);
     }
     let runner = if offer.page.unwrap_or(false) {
-        RunnerSpec::Page(offer)
+        RunnerSpec::Page(offer, restart)
     } else {
-        let (job, _, _) = build_job(&offer)?;
+        let (mut job, _, _) = build_job(&offer)?;
+        job.fresh = restart;
         RunnerSpec::Direct(job)
     };
-    app.db_update(id, 0, "running", None, None);
+    if !restart {
+        // keep the paused progress on screen until fresh bytes arrive
+        db_status(app, id, "running");
+        let _ = app.events.send(json!({"t":"status","id":id,"status":"running"}).to_string());
+    }
     spawn_job(app.clone(), id, runner).await;
-    eprintln!("resume_job id={id}: spawned");
     Ok(())
 }
 
@@ -689,7 +707,7 @@ fn delete_job(app: &Arc<App>, id: u64) -> Result<()> {
 async fn run_job(app: Arc<App>, id: u64, runner: RunnerSpec, kill_rx: watch::Receiver<bool>) {
     match runner {
         RunnerSpec::Direct(job) => run_direct(app, id, job, kill_rx).await,
-        RunnerSpec::Page(offer) => run_page(app, id, offer, kill_rx).await,
+        RunnerSpec::Page(offer, restart) => run_page(app, id, offer, restart, kill_rx).await,
     }
 }
 
@@ -799,7 +817,7 @@ async fn ffmpeg_mux(video: &std::path::Path, audio: Option<&std::path::Path>, ou
     Ok(())
 }
 
-async fn run_page(app: Arc<App>, id: u64, offer: Offer, mut kill_rx: watch::Receiver<bool>) {
+async fn run_page(app: Arc<App>, id: u64, offer: Offer, restart: bool, mut kill_rx: watch::Receiver<bool>) {
     let finish = |status: &str, err: Option<String>| {
         let _ = app.events.send(json!({"t":status,"id":id,"done":0,"error":err}).to_string());
     };
@@ -841,14 +859,17 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, mut kill_rx: watch::Rece
         });
     }
     // resolved: real filename + format known, switch from resolving to running
-    app.db_update(id, 0, "running", None, None);
+    // (status only - keep `done` so a resumed job does not flash back to 0)
+    db_status(&app, id, "running");
     let _ = app.events.send(json!({"t":"status","id":id,"status":"running"}).to_string());
 
     // phase 1: video
     let gv: PhaseStat;
     let mut ga = PhaseStat::default();
 
-    match run_media(&app, id, job_for(&v.url, vpath.clone(), &offer, offer.segments.unwrap_or(8)), &mut kill_rx, 0, None).await {
+    let mut vjob = job_for(&v.url, vpath.clone(), &offer, offer.segments.unwrap_or(8));
+    vjob.fresh = restart;
+    match run_media(&app, id, vjob, &mut kill_rx, 0, None).await {
         Ok(st) => gv = st,
         Err(e) => return page_fail(&app, id, e).await,
     }
@@ -859,7 +880,9 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, mut kill_rx: watch::Rece
 
     // phase 2: audio
     if let (Some(af), Some(ap)) = (a.as_ref(), apath.as_ref()) {
-        match run_media(&app, id, job_for(&af.url, ap.clone(), &offer, offer.segments.unwrap_or(4)), &mut kill_rx, gv.done, gv.size).await {
+        let mut ajob = job_for(&af.url, ap.clone(), &offer, offer.segments.unwrap_or(4));
+        ajob.fresh = restart;
+        match run_media(&app, id, ajob, &mut kill_rx, gv.done, gv.size).await {
             Ok(st) => ga = st,
             Err(e) => return page_fail(&app, id, e).await,
         }

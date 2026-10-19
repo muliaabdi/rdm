@@ -198,6 +198,112 @@ async fn cancel_then_resume_completes() {
     }
 }
 
+/// Signed/redirecting servers hand out a different URL on every probe; as long
+/// as the validators (or, absent those, the size) still match, resume must
+/// continue instead of silently restarting from zero.
+#[tokio::test]
+async fn resume_survives_url_change() {
+    let url = serve().await;
+    let dir = tmpdir("resume-url");
+    let out = dir.join("file.bin");
+    let spath = {
+        let mut s = out.as_os_str().to_os_string();
+        s.push(".rdm-part.json");
+        PathBuf::from(s)
+    };
+
+    let saved = {
+        let job = job_from_url(&format!("{url}?token=1"), Some(dir.clone()), 4, Limits::default());
+        let (tx, mut rx) = mpsc::channel::<Progress>(4096);
+        let (kx_tx, kx_rx) = watch::channel(false);
+        let handle = tokio::spawn(download(job, tx, kx_rx));
+        while let Some(p) = rx.recv().await {
+            if let Progress::Bytes { total_done, .. } = p {
+                if total_done > 128 * 1024 {
+                    kx_tx.send(true).ok();
+                    break;
+                }
+            }
+        }
+        handle.await.unwrap().unwrap();
+        let st: rdm_core::state::JobState =
+            serde_json::from_slice(&std::fs::read(&spath).unwrap()).unwrap();
+        assert!(st.total_done() > 0);
+        st.total_done()
+    };
+
+    // second pass: same content, different (re-signed) URL
+    let job = job_from_url(&format!("{url}?token=2"), Some(dir.clone()), 4, Limits::default());
+    let (tx, mut rx) = mpsc::channel::<Progress>(4096);
+    let (_kx, kx) = watch::channel(false);
+    let handle = tokio::spawn(download(job, tx, kx));
+    let mut first_bytes: Option<u64> = None;
+    while let Some(p) = rx.recv().await {
+        if let Progress::Bytes { total_done, .. } = p {
+            if first_bytes.is_none() {
+                first_bytes = Some(total_done);
+            }
+        }
+    }
+    handle.await.unwrap().unwrap();
+    let first = first_bytes.expect("no progress events on resume");
+    assert!(first >= saved, "resume must continue at {saved}, started at {first} instead");
+    assert!(!spath.exists());
+    let got = std::fs::read(&out).unwrap();
+    assert_eq!(got.len(), SIZE);
+    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 31 + 7) as u8));
+}
+
+/// Explicit restart (job.fresh) discards the part state and starts at zero.
+#[tokio::test]
+async fn fresh_flag_restarts_from_zero() {
+    let url = serve().await;
+    let dir = tmpdir("fresh");
+    let out = dir.join("file.bin");
+    let spath = {
+        let mut s = out.as_os_str().to_os_string();
+        s.push(".rdm-part.json");
+        PathBuf::from(s)
+    };
+
+    {
+        let job = job_from_url(&url, Some(dir.clone()), 4, Limits::default());
+        let (tx, mut rx) = mpsc::channel::<Progress>(4096);
+        let (kx_tx, kx_rx) = watch::channel(false);
+        let handle = tokio::spawn(download(job, tx, kx_rx));
+        while let Some(p) = rx.recv().await {
+            if let Progress::Bytes { total_done, .. } = p {
+                if total_done > 128 * 1024 {
+                    kx_tx.send(true).ok();
+                    break;
+                }
+            }
+        }
+        handle.await.unwrap().unwrap();
+        assert!(spath.exists());
+    }
+
+    let mut job = job_from_url(&url, Some(dir.clone()), 4, Limits::default());
+    job.fresh = true;
+    let (tx, mut rx) = mpsc::channel::<Progress>(4096);
+    let (_kx, kx) = watch::channel(false);
+    let handle = tokio::spawn(download(job, tx, kx));
+    let mut first_bytes: Option<u64> = None;
+    while let Some(p) = rx.recv().await {
+        if let Progress::Bytes { total_done, .. } = p {
+            if first_bytes.is_none() {
+                first_bytes = Some(total_done);
+            }
+        }
+    }
+    handle.await.unwrap().unwrap();
+    assert!(first_bytes.unwrap_or(0) < 128 * 1024 + 64 * 1024, "fresh run must start near zero");
+    assert!(!spath.exists());
+    let got = std::fs::read(&out).unwrap();
+    assert_eq!(got.len(), SIZE);
+    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 31 + 7) as u8));
+}
+
 /// IDM-style dynamic splitting: while one connection stalls, the idle ones must
 /// carve up its remaining bytes instead of waiting for it.
 #[tokio::test]

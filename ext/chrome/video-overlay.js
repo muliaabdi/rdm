@@ -10,11 +10,8 @@
   let current = null;
   let pageModeNow = false;
 
-  const PAGE_HOSTS = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com|twitch\.tv|instagram\.com|tiktok\.com|twitter\.com|x\.com|facebook\.com|fb\.watch|reddit\.com|soundcloud\.com|bilibili\.com|nicovideo\.jp|rumble\.com|odysee\.com)$/i;
-  const onVideoSite = () => { try { return PAGE_HOSTS.test(location.hostname); } catch { return false; } };
-
   function urlOf(el) {
-    const u = el.currentSrc || el.src || "";
+    const u = (el && (el.currentSrc || el.src)) || "";
     return /^https?:\/\//i.test(u) ? u : "";
   }
 
@@ -135,17 +132,36 @@
     hideTimer = setTimeout(destroy, 350);
   }
 
+  // Resolve the media element for a hovered node. Players (JWPlayer, video.js,
+  // custom HTML5 players) usually stack transparent control layers on top of
+  // the <video>, so the hover target is a wrapper - look for the media inside
+  // a player-ish ancestor too. Shadow-DOM hosts retarget to the host element,
+  // which `querySelector` can still see through for slotted content.
+  function mediaAt(el) {
+    if (!el || el.nodeType !== 1 || !el.closest) return null;
+    const direct = el.closest("video, audio");
+    if (direct) return direct;
+    const host = el.closest('[class*="player" i],[id*="player" i],[class*="video" i],[id*="video" i],[class*="jw" i],[data-player]');
+    if (host) return host.querySelector("video, audio");
+    return null;
+  }
+
   document.addEventListener("mouseover", (e) => {
-    const el = e.target && e.target.closest ? e.target.closest("video, audio") : null;
+    const el = mediaAt(e.target);
     if (!el) {
+      if (btn && !btn.contains(e.target)) scheduleHide();
+      return;
+    }
+    if (el.srcObject && !urlOf(el)) {
+      // live camera / WebRTC stream, not a downloadable file
       if (btn && !btn.contains(e.target)) scheduleHide();
       return;
     }
     const url = urlOf(el);
     if (!url) {
-      // blob:/data: streams (e.g. YouTube) cannot be re-fetched directly; offer
-      // the page itself so the daemon can resolve it via yt-dlp.
-      if (onVideoSite()) show(el, "", true);
+      // blob:/data: MSE streams cannot be re-fetched directly; offer the page
+      // itself so the daemon can resolve it via yt-dlp (any site).
+      show(el, "", true);
       return;
     }
     show(el, url, false);

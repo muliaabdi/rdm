@@ -43,6 +43,8 @@ pub struct Job {
     pub headers: HeaderMap,
     pub segments: u64,
     pub limits: Limits,
+    /// Restart mode: discard any on-disk part state and download from zero.
+    pub fresh: bool,
 }
 
 /// Build a job for `url`, storing in `out_dir`, name from URL path.
@@ -55,6 +57,7 @@ pub fn job_from_url(url: &str, out_dir: Option<PathBuf>, segments: u64, limits: 
         headers: HeaderMap::new(),
         segments,
         limits,
+        fresh: false,
     }
 }
 
@@ -203,19 +206,33 @@ pub async fn download(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "download".into());
 
-    // Load resumable state when identity still matches.
+    // Load resumable state. Identity is kept when validators match; when the
+    // server sends neither ETag nor Last-Modified (e.g. signed CDN URLs such
+    // as googlevideo), a matching size is enough. The URL itself may differ:
+    // redirects and signed URLs expire, so the fresh probe URL replaces it.
     let spath = state_path(&job.out);
-    let resumed = JobState::load(&spath)
-        .ok()
-        .flatten()
-        .filter(|st| {
-            st.url == probe.final_url.as_str()
-                && st.etag == probe.etag
-                && st.last_modified == probe.last_modified
-        });
+    let resumed = if job.fresh {
+        std::fs::remove_file(&spath).ok();
+        None
+    } else {
+        JobState::load(&spath)
+            .ok()
+            .flatten()
+            .filter(|st| !st.complete())
+            .filter(|st| {
+                if st.etag.is_some() || st.last_modified.is_some() {
+                    st.etag == probe.etag && st.last_modified == probe.last_modified
+                } else {
+                    st.size.is_some() && st.size == probe.size
+                }
+            })
+    };
 
     let (mut st, resume) = match resumed {
-        Some(st) if !st.complete() => (st, true),
+        Some(mut st) => {
+            st.url = probe.final_url.to_string();
+            (st, true)
+        }
         _ => {
             let segs = match probe.size {
                 Some(sz)
@@ -292,13 +309,14 @@ pub async fn download(
     }
 
     let mut outcome = Outcome::Completed;
+    let mut kill_watch = kill.clone();
     loop {
         if shared.failed.lock().await.is_some() {
             outcome = Outcome::Cancelled;
             set.abort_all();
             break;
         }
-        if *kill.borrow() {
+        if *kill_watch.borrow() {
             outcome = Outcome::Cancelled;
             set.abort_all();
             break;
@@ -306,7 +324,18 @@ pub async fn download(
         if set.is_empty() {
             break;
         }
-        let _ = set.join_next().await;
+        // react to kill immediately instead of waiting for the next segment
+        // task to finish - pause must feel instant even with long segments
+        tokio::select! {
+            changed = kill_watch.changed() => {
+                if changed.is_ok() && *kill_watch.borrow() {
+                    outcome = Outcome::Cancelled;
+                    set.abort_all();
+                    break;
+                }
+            }
+            _ = set.join_next() => {}
+        }
     }
 
     let stg = shared.state.lock().await;
@@ -520,7 +549,7 @@ async fn steal(sh: &Shared, from: usize) -> Option<usize> {
         .filter(|(i, s)| *i != from && s.remaining() > 0)
         .map(|(i, s)| (i, s.remaining()))
         .max_by_key(|&(_, r)| r)?;
-    let (j, rem) = best;
+    let (j, _rem) = best;
     let (new_end, seg) = split_remaining(&st.segments[j], MIN_STEAL)?;
     st.segments[j].end = new_end;
     st.segments.push(seg);
