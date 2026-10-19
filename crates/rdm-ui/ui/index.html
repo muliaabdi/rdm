@@ -986,7 +986,7 @@ listen("rdm", (ev) => {
       break;
     case "show": focusWindow(); break;
     case "formats": if (window.__onFormats) window.__onFormats(m); break;
-    case "error": if (window.__onFormats) { const f = window.__onFormats; window.__onFormats = null; f({ __err: m.error }); } else diag("daemon error: " + m.error); break;
+    case "error": if (window.__onFormats) { const f = window.__onFormats; window.__onFormats = null; f({ __err: m.error }); } else toast(trErr(m.error || "daemon error")); break;
     case "started": apply({ id: m.id, size: m.size }); break;
     case "status": apply({ id: m.id, status: m.status }); renderRows(); break;
     case "progress": apply({ id: m.id, done: m.done, size: m.size, status: "running" }); break;

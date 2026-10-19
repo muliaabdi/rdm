@@ -144,6 +144,49 @@ struct RawInfo {
     url: Option<String>,
 }
 
+/// yt-dlp deprecated `--add-header "Cookie: ..."` (and scopes header cookies
+/// wrong); feed it a proper Netscape cookie file scoped to the page host.
+struct CookieFile(std::path::PathBuf);
+impl Drop for CookieFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn write_cookie_file(page_url: &str, header: &str) -> Option<CookieFile> {
+    let rest = page_url.split("://").nth(1)?;
+    let host = rest.split(['/', '?', '#']).next()?.trim_start_matches("www.").to_string();
+    if host.is_empty() {
+        return None;
+    }
+    let name = format!(
+        "rdm-cookies-{}-{}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let mut body = String::from("# Netscape HTTP Cookie File\n");
+    let mut n = 0usize;
+    for pair in header.split(';') {
+        let Some((k, v)) = pair.trim().split_once('=') else { continue };
+        body.push_str(&format!(".{host}\tTRUE\t/\tTRUE\t4102444800\t{}\t{}\n", k.trim(), v.trim()));
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    std::fs::write(&path, body).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Some(CookieFile(path))
+}
+
 /// Extract metadata + direct format URLs for a page/video URL.
 pub async fn extract(page_url: &str, cookie: Option<&str>, ua: Option<&str>) -> Result<ExtractInfo> {
     let mut args: Vec<String> = vec![
@@ -155,9 +198,11 @@ pub async fn extract(page_url: &str, cookie: Option<&str>, ua: Option<&str>) -> 
         "--no-warnings".into(),
         page_url.into(),
     ];
-    if let Some(c) = cookie.filter(|c| !c.is_empty()) {
-        args.push("--add-header".into());
-        args.push(format!("Cookie: {c}"));
+    // keep the temp file alive until the child is done (Drop removes it)
+    let cfile = cookie.filter(|c| !c.is_empty()).and_then(|c| write_cookie_file(page_url, c));
+    if let Some(f) = &cfile {
+        args.push("--cookies".into());
+        args.push(f.0.to_string_lossy().into_owned());
     }
     if let Some(u) = ua.filter(|u| !u.is_empty()) {
         args.push("--user-agent".into());

@@ -824,7 +824,20 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, restart: bool, mut kill_
     let _ = app.events.send(json!({"t":"started","id":id,"size":null}).to_string());
     let _ = app.events.send(json!({"t":"status","id":id,"status":"resolving"}).to_string());
 
-    let info = match ytdlp::extract(&offer.url, offer.cookie.as_deref(), offer.ua.as_deref()).await {
+    let info = {
+        // abortable: pause/stop must not wait out a slow extraction
+        let mut kill_extract = kill_rx.clone();
+        let extraction = ytdlp::extract(&offer.url, offer.cookie.as_deref(), offer.ua.as_deref());
+        tokio::pin!(extraction);
+        tokio::select! {
+            res = &mut extraction => res,
+            _ = kill_extract.changed() => {
+                cancel_page(&app, id).await;
+                return;
+            }
+        }
+    };
+    let info = match info {
         Ok(i) => i,
         Err(e) => {
             app.db_update(id, 0, "failed", Some(&format!("{e:#}")), None);
