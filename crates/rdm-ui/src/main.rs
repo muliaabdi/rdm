@@ -230,7 +230,17 @@ async fn connect_daemon() -> anyhow::Result<UnixStream> {
 
 async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> {
     loop {
-        let stream = connect_daemon().await?;
+        // never give up: the daemon may be down for a while (updates, tests,
+        // crashes) and the UI must re-attach as soon as it returns
+        let stream = match connect_daemon().await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("rdm-ui: daemon unreachable ({e:#}); retrying");
+                let _ = app.emit("rdm", json!({"t":"disconnected"}));
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                continue;
+            }
+        };
         let (r, w) = stream.into_split();
         let (tx, mut rx) = mpsc::channel::<String>(64);
         *ctx.tx.lock().unwrap() = Some(tx);
