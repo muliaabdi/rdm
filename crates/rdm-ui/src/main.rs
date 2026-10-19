@@ -32,12 +32,9 @@ fn read_settings() -> serde_json::Value {
 }
 
 #[tauri::command]
-fn set_settings(v: serde_json::Value) -> Result<(), String> {
-    let p = settings_path();
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&p, serde_json::to_vec_pretty(&v).unwrap_or_default()).map_err(|e| e.to_string())
+fn set_settings(ctx: State<'_, Arc<Ctx>>, v: serde_json::Value) -> Result<(), String> {
+    // route through the daemon: it persists AND broadcasts to the extension
+    send_line(&ctx, json!({"t":"set-settings","v":v}).to_string())
 }
 
 #[tauri::command]

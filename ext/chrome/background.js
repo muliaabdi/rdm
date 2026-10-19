@@ -27,11 +27,13 @@ function extOf(name, url) {
   return m ? m[1].toLowerCase() : "";
 }
 
-// allow-list from RDM settings; unknown/no extension still takes over
+// allow-list from RDM settings; when a filter is set, ONLY those extensions
+// take over - extension-less URLs (google drive, signed CDN endpoints) stay
+// with the browser instead of hijacking every unknown download
 function extAllowed(name, url) {
   if (!Array.isArray(interceptExt) || !interceptExt.length) return true;
   const e = extOf(name, url);
-  return !e || interceptExt.includes(e);
+  return !!e && interceptExt.includes(e);
 }
 
 function ensurePort() {
@@ -180,6 +182,7 @@ chrome.webRequest.onHeadersReceived.addListener(
       if (seenRecently(details.url)) return;
 
       const name = cdFilename(cd) || nameFromUrl(details.url);
+      if (!extAllowed(name, details.url)) return; // respect the Files type filter
       showFab(details.tabId, details.url, name, len).catch(() => {});
     } catch (e) {
       console.warn("rdm: onHeadersReceived", e);

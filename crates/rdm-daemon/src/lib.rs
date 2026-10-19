@@ -267,6 +267,21 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
         Some("get-settings") => {
             Ok(Some(json!({"t":"settings","settings":settings_json()}).to_string()))
         }
+        Some("set-settings") => {
+            // single writer: persist and push to every connected client (the
+            // browser extension refreshes its intercept allow-list from this)
+            let val = v["v"].clone();
+            let p = settings_path();
+            if let Some(dir) = p.parent() {
+                std::fs::create_dir_all(dir).context("create settings dir")?;
+            }
+            std::fs::write(&p, serde_json::to_vec_pretty(&val).context("encode settings")?)
+                .context("write settings")?;
+            let _ = app
+                .events
+                .send(json!({"t":"settings","settings":val}).to_string());
+            Ok(None)
+        }
         Some("pause") | Some("cancel") => {
             let id = v["id"].as_u64().context("id required")?;
             let paused = v["t"].as_str() == Some("pause");
