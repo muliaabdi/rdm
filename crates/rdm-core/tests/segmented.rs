@@ -367,7 +367,7 @@ async fn fresh_flag_restarts_from_zero() {
         .all(|(i, b)| *b == (i * 31 + 7) as u8));
 }
 
-/// IDM-style dynamic splitting: while one connection stalls, the idle ones must
+/// Classic dynamic splitting: while one connection stalls, the idle ones must
 /// carve up its remaining bytes instead of waiting for it.
 #[tokio::test]
 async fn stalled_connection_gets_split() {

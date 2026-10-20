@@ -145,6 +145,7 @@ async fn pause_resume_roundtrip() {
     let mut lines = BufReader::new(r).lines();
     let mut id = 0u64;
     let mut paused = false;
+    #[allow(unused_assignments)]
     let mut resumed_done = false;
     let mut expect = "pauseable";
     loop {
@@ -224,6 +225,7 @@ async fn offer_via_socket_downloads_file() {
     w.write_all(b"\n").await.unwrap();
 
     let mut lines = BufReader::new(r).lines();
+    #[allow(unused_assignments)]
     let mut got_done = false;
     let mut got_accepted = false;
     loop {

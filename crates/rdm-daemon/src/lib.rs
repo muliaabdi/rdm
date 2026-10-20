@@ -2,10 +2,10 @@
 //!
 //! Messages (one JSON object per line, both directions):
 //! - in:  {"t":"offer","url":..,"filename":..,"cookie":..,"referer":..,"ua":..,"dir":..,"segments":N}
-//!        {"t":"list"} | {"t":"pause","id":N} | {"t":"resume","id":N} | {"t":"cancel","id":N}
-//!        {"t":"restart","id":N} | {"t":"delete","id":N}
+//!   {"t":"list"} | {"t":"pause","id":N} | {"t":"resume","id":N} | {"t":"cancel","id":N}
+//!   {"t":"restart","id":N} | {"t":"delete","id":N}
 //! - out: {"t":"accepted","id":N} | {"t":"started",..} | {"t":"progress",..} | {"t":"detail",..}
-//!        | {"t":"done",..} | {"t":"failed",..} | {"t":"cancelled",..} | {"t":"jobs",..}
+//!   | {"t":"done",..} | {"t":"failed",..} | {"t":"cancelled",..} | {"t":"jobs",..}
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -810,7 +810,7 @@ fn next_queued(app: &Arc<App>) -> Option<u64> {
             |r| r.get::<_, i64>(0),
         )
         .ok()
-        .map(|id| {
+        .and_then(|id| {
             let id = id as u64;
             if ctl.contains_key(&id) {
                 None
@@ -818,7 +818,6 @@ fn next_queued(app: &Arc<App>) -> Option<u64> {
                 Some(id)
             }
         })
-        .flatten()
     })
 }
 
@@ -994,18 +993,10 @@ async fn run_job(app: Arc<App>, id: u64, runner: RunnerSpec, kill_rx: watch::Rec
 }
 
 /// Download one media URL with the engine, emitting aggregated progress.
+#[derive(Default)]
 struct PhaseStat {
     done: u64,
     size: Option<u64>,
-}
-
-impl Default for PhaseStat {
-    fn default() -> Self {
-        PhaseStat {
-            done: 0,
-            size: None,
-        }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1057,7 +1048,7 @@ async fn run_media(
             last_emit = Instant::now();
             let done = st.done + other_done;
             // size is the sum of every phase's size known so far; it grows as
-            // later phases (audio, mux) start, like IDM's dynamic total.
+            // later phases (audio, mux) start, like a classic download manager's dynamic total.
             let size = st.size.map(|s| s + other_size.unwrap_or(0)).or(other_size);
             app.note_live(id, done, size);
             let _ = app
@@ -1224,15 +1215,15 @@ async fn run_page(
         .send(json!({"t":"status","id":id,"status":"running"}).to_string());
 
     // phase 1: video
-    let gv: PhaseStat;
+
     let mut ga = PhaseStat::default();
 
     let mut vjob = job_for(&v.url, vpath.clone(), &offer, offer.segments.unwrap_or(8));
     vjob.fresh = restart;
-    match run_media(&app, id, vjob, &mut kill_rx, 0, None).await {
-        Ok(st) => gv = st,
+    let gv: PhaseStat = match run_media(&app, id, vjob, &mut kill_rx, 0, None).await {
+        Ok(st) => st,
         Err(e) => return page_fail(&app, id, e).await,
-    }
+    };
     if *kill_rx.borrow() {
         cancel_page(&app, id).await;
         return;

@@ -9,6 +9,9 @@ pub struct Segment {
 }
 
 impl Segment {
+    /// Byte length of the range; an empty segment is never constructed
+    /// (start..end inclusive), so no `is_empty` here.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
         self.end - self.start + 1
     }
@@ -45,7 +48,7 @@ impl JobState {
     }
 
     pub fn complete(&self) -> bool {
-        self.size.map_or(false, |sz| self.total_done() == sz)
+        self.size.is_some_and(|sz| self.total_done() == sz)
             && self.segments.iter().all(|s| s.complete())
     }
 

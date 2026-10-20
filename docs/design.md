@@ -1,13 +1,14 @@
-# RDM — Rust Download Manager, Pengganti Penuh IDM
+# RDM — Rust Download Manager
 
-Desain v0.1 · 2026-10-18 · basis: hasil reverse engineering IDM 6.43.15
-(~/idm-re/LAPORAN.md)
+Desain v0.1 · 2026-10-18. Catatan: dokumen desain awal; implementasi
+menyimpang di beberapa titik (IPC = unix socket + native messaging, DB =
+rusqlite, ekstensi = JavaScript MV3). Lihat README.md untuk kondisi terkini.
 
 ## Intent
 
-Pengganti IDM yang lintas platform: engine Rust + ekstensi browser sendiri.
+Download manager lintas platform: engine Rust + ekstensi browser sendiri.
 Interaksi utama via ekstensi (klik/kanan/deteksi otomatis) — paste URL hanya
-cadangan. Bukan clone protokol IDM: protokol dan ekstensi baru, bersih.
+cadangan. Protokol dan ekstensi baru, bersih.
 
 ## Goals
 
@@ -15,22 +16,22 @@ cadangan. Bukan clone protokol IDM: protokol dan ekstensi baru, bersih.
 2. Ekstensi Chrome (MV3) + Firefox (MV2) yang mengambil alih unduhan:
    deteksi content-type/size, kanan-klik link/media, halaman video.
 3. Cookie + header + POST body diteruskan dari browser ke engine (otentikasi
-   sesi), seperti IDM.
+   sesi).
 4. Antrean persisten (SQLite), kategori, batas kecepatan, penjadwalan.
 5. UI desktop (Tauri v2) + CLI.
 
 ## Non-goals
 
-- Kompatibel dengan ekstensi IDM sendiri / protokol `MSG#` IDM.
-- Injekeksi ke proses browser (SetWindowsHookEx ala IDMNetMon) — ditolak.
+- Kompatibel dengan ekstensi download manager lain / protokol vendor luar.
+- Injeksi ke proses browser (hooking) — ditolak.
 - Driver kernel (WFP/TDI) — ditolak.
 - Site-specific bypass DRM (youtube-dl territory) — hanya sniff generik
   (MIME/ekstensi/size), tidak ada parser situs tertanam di binary.
 
 ## Anti-goals
 
-- Server localhost tanpa autentikasi (celah audit IDM: Origin-spoofable).
-- Eksekusi kode arbitrer dari page world (fitur patch-global IDM).
+- Server localhost tanpa autentikasi (origin-spoofable).
+- Eksekusi kode arbitrer dari page world.
 - Telemetri diam-diam ke server vendor.
 
 ## Arsitektur
@@ -59,7 +60,7 @@ cadangan. Bukan clone protokol IDM: protokol dan ekstensi baru, bersih.
                               └─────────────────────────┘
 ```
 
-Poin keamanan (pelajaran audit IDM):
+Poin keamanan:
 - Kendali penuh hanya lewat native messaging (browser yang memvalidasi origin)
   atau API localhost dengan token yang di-generate daemon per sesi, di-share
   via file 0600 — bukan Origin header.
@@ -92,7 +93,7 @@ Poin keamanan (pelajaran audit IDM):
 | Segmented download | crate sendiri di atas hyper | kontrol Range penuh |
 | Queue | SQLite via sqlx | persisten, resume |
 | IPC | native messaging stdio | browser validasi origin; tak ada port terbuka |
-| Ekstensi | TypeScript, satu source dua manifest (MV3/MV2) | pola IDM (IDMGCExt/idmmzcc3) |
+| Ekstensi | JavaScript MV3 (satu source, manifest tunggal) | sederhana, tanpa build step |
 | UI | Tauri v2 | Rust backend, kecil |
 | Distribusi | cargo + tauri bundler; ekstensi via web store/dev-mode | — |
 
@@ -115,12 +116,12 @@ M2 — Intersepsi otomatis (3–4 minggu)
 
 M3 — UI Tauri + fitur (3–4 minggu)
 - daftar unduhan, kategori, scheduler, speed limiter, proxy per-download,
-  shrimp: import dari IDM (baca folder DwnlData? opsional).
+  shrimp: import dari download manager lain (opsional).
 
 M4 — Matang
 - Firefox build, pembaruan otomatis, installer (MSI/NSIS/deb/AppImage),
-- video sniff generik (media element + fetch/XHR pattern seperti IDM
-  document.js TAPI tanpa patch global — cukup performance observer +
+- video sniff generik (media element + fetch/XHR pattern,
+  tanpa patch global — cukup performance observer +
   webRequest), dokumentasi.
 
 ## Yang dibuat builder, keputusan terbuka

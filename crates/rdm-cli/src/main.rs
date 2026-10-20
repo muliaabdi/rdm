@@ -41,7 +41,14 @@ async fn main() -> Result<()> {
         .with_env_filter(std::env::var("RDM_LOG").unwrap_or_else(|_| "warn".into()))
         .init();
     let cli = Cli::parse();
-    let Cmd::Add { url, out, segments, speed_kib, sha256, retries } = cli.cmd;
+    let Cmd::Add {
+        url,
+        out,
+        segments,
+        speed_kib,
+        sha256,
+        retries,
+    } = cli.cmd;
 
     let limits = Limits {
         max_speed: speed_kib.map(|k| k * 1024),

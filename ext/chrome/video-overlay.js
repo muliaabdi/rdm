@@ -1,4 +1,4 @@
-// Video overlay: IDM-style "Download with RDM" tooltip above <video>/<audio>.
+// Video overlay: "Download with RDM" tooltip above <video>/<audio>.
 // Runs in all frames; hover a playable media element to reveal.
 
 (function () {

@@ -17,7 +17,7 @@ use crate::state::{split, JobState};
 pub const DEFAULT_MIN_SEGMENT: u64 = 1024 * 1024;
 const RETRY_DELAY: Duration = Duration::from_millis(800);
 /// A task only steals when at least this much is left, so split halves stay
-/// meaningful (mirrors IDM's dynamic segmentation floor).
+/// meaningful (mirrors the dynamic segmentation floor of classic download managers).
 pub const MIN_STEAL: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone)]
@@ -455,7 +455,7 @@ async fn finish(
 ) -> Result<()> {
     let size = st.total_done();
     // flush directory entry best effort
-    if let Some(f) = std::fs::File::open(&job.out).ok() {
+    if let Ok(f) = std::fs::File::open(&job.out) {
         f.sync_all().ok();
     }
     std::fs::remove_file(state_path(&job.out)).ok();
@@ -505,7 +505,7 @@ async fn segment_task(
     let mut idx = start_idx;
     loop {
         // fetch the assigned segment; on completion try to steal more work
-        // from the largest remaining segment (IDM-style dynamic splitting)
+        // from the largest remaining segment (classic-style dynamic splitting)
         loop {
             if *kill.borrow() {
                 return;
@@ -583,8 +583,8 @@ async fn segment_task(
                 let total_done = {
                     let mut st = sh.state.lock().await;
                     st.segments[idx].done = pos - seg_start;
-                    let t = st.total_done();
-                    t
+
+                    st.total_done()
                 };
                 let due = {
                     sh.last_detail
@@ -647,7 +647,7 @@ async fn segment_task(
     }
 }
 
-/// IDM-style work stealing: take the upper half of the *remaining* bytes of
+/// Classic download-manager work stealing: take the upper half of the *remaining* bytes of
 /// the largest incomplete segment and append it as a fresh segment.
 async fn steal(sh: &Shared, from: usize) -> Option<usize> {
     let mut st = sh.state.lock().await;

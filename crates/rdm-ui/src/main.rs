@@ -127,13 +127,21 @@ fn open_path(path: String, folder: bool) -> Result<(), String> {
     eprintln!("open_path: path={path:?} folder={folder}");
     let p = std::path::PathBuf::from(&path);
     let target = if folder {
-        if p.is_dir() { p } else { p.parent().map(|x| x.to_path_buf()).unwrap_or(p) }
+        if p.is_dir() {
+            p
+        } else {
+            p.parent().map(|x| x.to_path_buf()).unwrap_or(p)
+        }
     } else {
         p
     };
     eprintln!("open_path: target={:?} exists={}", target, target.exists());
     if !target.exists() {
-        return Err(if folder { "folder not found".into() } else { "file not found".into() });
+        return Err(if folder {
+            "folder not found".into()
+        } else {
+            "file not found".into()
+        });
     }
     let t = target.to_string_lossy().to_string();
     // Plasma 6 ships `kioclient`; plain `xdg-open` can exit 0 without opening
@@ -170,7 +178,12 @@ fn open_path(path: String, folder: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn add_page(ctx: State<'_, Arc<Ctx>>, url: String, height: u64, audio_only: bool) -> Result<(), String> {
+fn add_page(
+    ctx: State<'_, Arc<Ctx>>,
+    url: String,
+    height: u64,
+    audio_only: bool,
+) -> Result<(), String> {
     let s = read_settings();
     let mut offer = json!({
         "t":"offer-page","url":url,"page":true,
@@ -186,7 +199,9 @@ fn add_page(ctx: State<'_, Arc<Ctx>>, url: String, height: u64, audio_only: bool
 }
 
 fn spawn_daemon() {
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     let Some(dir) = exe.parent() else { return };
     for name in ["rdm-daemon", "../debug/rdm-daemon", "../rdm-daemon"] {
         let bin = dir.join(name);
@@ -255,7 +270,8 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
         let writer = tokio::spawn(async move {
             let mut w = w;
             while let Some(line) = rx.recv().await {
-                if w.write_all(line.as_bytes()).await.is_err() || w.write_all(b"\n").await.is_err() {
+                if w.write_all(line.as_bytes()).await.is_err() || w.write_all(b"\n").await.is_err()
+                {
                     return;
                 }
                 let _ = w.flush().await;
@@ -287,12 +303,20 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
 }
 
 #[tauri::command]
-fn job_action(ctx: State<'_, Arc<Ctx>>, action: String, id: u64, files: Option<bool>) -> Result<(), String> {
+fn job_action(
+    ctx: State<'_, Arc<Ctx>>,
+    action: String,
+    id: u64,
+    files: Option<bool>,
+) -> Result<(), String> {
     const ALLOWED: [&str; 6] = ["pause", "resume", "cancel", "restart", "delete", "list"];
     if !ALLOWED.contains(&action.as_str()) {
         return Err(format!("unknown action: {action}"));
     }
-    send_line(&ctx, json!({"t":action,"id":id,"files":files.unwrap_or(true)}).to_string())
+    send_line(
+        &ctx,
+        json!({"t":action,"id":id,"files":files.unwrap_or(true)}).to_string(),
+    )
 }
 
 /// Desktop notification (Linux: notify-send) for finished downloads.
@@ -356,8 +380,8 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
         let done = j["done"].as_u64().unwrap_or(0);
         let size = j.get("size").and_then(|s| s.as_u64()).filter(|s| *s > 0);
         let text = match (status, size) {
-            ("queued", _) => en.then_some("queued").unwrap_or("antre").to_string(),
-            ("paused", _) => en.then_some("paused").unwrap_or("jeda").to_string(),
+            ("queued", _) => if en { "queued" } else { "antre" }.to_string(),
+            ("paused", _) => if en { "paused" } else { "jeda" }.to_string(),
             ("resolving", _) => "…".into(),
             (_, Some(sz)) => format!("{}%", (done * 100 / sz).min(100)),
             _ => format!("{:.1} MB", done as f64 / 1e6),
@@ -377,7 +401,9 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
     let handle = app.clone();
     let _ = handle.run_on_main_thread(move || {
         use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-        let Some(tray) = app.tray_by_id("rdm-tray") else { return };
+        let Some(tray) = app.tray_by_id("rdm-tray") else {
+            return;
+        };
         let (m_show, m_quit, m_head) = if en {
             ("Show", "Quit", format!("Active downloads ({n})"))
         } else {
@@ -395,7 +421,9 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
                 items.push(h);
             }
             for j in &list {
-                if let Ok(i) = MenuItem::with_id(&app, format!("rdmj-{}", j.id), &j.label, true, None::<&str>) {
+                if let Ok(i) =
+                    MenuItem::with_id(&app, format!("rdmj-{}", j.id), &j.label, true, None::<&str>)
+                {
                     items.push(Box::new(i));
                 }
             }
@@ -452,7 +480,9 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
     TrayIconBuilder::with_id("rdm-tray")
-        .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?)
+        .icon(tauri::image::Image::from_bytes(include_bytes!(
+            "../icons/tray.png"
+        ))?)
         .tooltip(tip)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -498,10 +528,13 @@ fn language() -> bool {
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let ctx: Arc<Ctx> = Arc::new(Ctx { tx: Mutex::new(None) });
+            let ctx: Arc<Ctx> = Arc::new(Ctx {
+                tx: Mutex::new(None),
+            });
             app.manage(ctx.clone());
             // never let a tray/DE quirk take the whole app down
-            let tray = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_tray(app.handle())));
+            let tray =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_tray(app.handle())));
             match tray {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => eprintln!("rdm-ui tray: {e}"),

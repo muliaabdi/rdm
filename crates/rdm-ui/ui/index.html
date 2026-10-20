@@ -532,7 +532,7 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 function segGradient(segs, size) {
-  // IDM-style alternating green stripes per completed segment
+  // Alternating green stripes per completed segment
   if (!segs || !size) return "linear-gradient(90deg,#57b85c 0%,#57b85c 0%)";
   const full = "#57b85c", alt = "#3f9d46";
   const parts = [];
@@ -817,7 +817,7 @@ function openConfirm(m) {
   };
 }
 
-/* ---------- details dialog (IDM-style, opened by double-click) ---------- */
+/* ---------- details dialog (classic style, opened by double-click) ---------- */
 let detailsFor = null;
 function detailSeries() {
   return jobHist.get(detailsFor) || [];

@@ -390,7 +390,7 @@ pub fn pick(info: &ExtractInfo, max_height: u64, audio_only: bool) -> (Fmt, Opti
     let prog = info
         .formats
         .iter()
-        .filter(|f| f.progressive && f.height.map_or(true, |h| h <= max_height))
+        .filter(|f| f.progressive && f.height.is_none_or(|h| h <= max_height))
         .max_by_key(|f| f.height.unwrap_or(0));
     if let Some(p) = prog {
         return (p.clone(), None);
@@ -400,7 +400,7 @@ pub fn pick(info: &ExtractInfo, max_height: u64, audio_only: bool) -> (Fmt, Opti
         .formats
         .iter()
         .filter(|f| {
-            f.vcodec != "none" && f.acodec == "none" && f.height.map_or(false, |h| h <= max_height)
+            f.vcodec != "none" && f.acodec == "none" && f.height.is_some_and(|h| h <= max_height)
         })
         .max_by_key(|f| {
             (
