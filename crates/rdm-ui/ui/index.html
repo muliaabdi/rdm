@@ -347,15 +347,34 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const diag = (m) => window.__TAURI__?.core?.invoke("diag", { msg: m }).catch(() => {});
-window.addEventListener("error", (e) => diag("onerror: " + e.message));
+// diag must never throw: it runs inside catch blocks, and __TAURI__ may not
+// exist yet (injection race) or at all (file:// preview) — a crash here would
+// abort the whole script and kill every button handler
+const diag = (m) => {
+  try { window.__TAURI__?.core?.invoke?.("diag", { msg: m })?.catch?.(() => {}); } catch {}
+};
+window.__rdmErrs = [];
+window.addEventListener("error", (e) => { window.__rdmErrs.push(e.message); diag("onerror: " + e.message); });
 let invoke = async () => { throw new Error("IPC not ready"); };
 let listen = async () => () => {};
-try {
-  invoke = window.__TAURI__.core.invoke;
-  listen = window.__TAURI__.event.listen;
-  diag("boot ok");
-} catch (e) { diag("ipc fail " + e.message); }
+// The Tauri global can appear after document-start on WebKitGTK; poll for it
+// instead of binding once and dying when it is not there yet
+function bindIpc() {
+  const t = window.__TAURI__;
+  if (t && t.core && t.core.invoke && t.event && t.event.listen) {
+    invoke = t.core.invoke;
+    listen = t.event.listen;
+    diag("boot ok");
+    return true;
+  }
+  return false;
+}
+if (!bindIpc()) {
+  let tries = 0;
+  const iv = setInterval(() => {
+    if (bindIpc() || ++tries > 200) clearInterval(iv);
+  }, 50);
+}
 
 async function focusWindow() {
   try {
@@ -1253,8 +1272,9 @@ const FTYPES = [
   ["others", "ft_others", "torrent bin dat m3u8 mpd nfo srt"],
 ];
 const EXT2CAT = new Map(FTYPES.flatMap(([id, , str]) => str.split(" ").map((x) => [x, id])));
-// category keys must match rdm_core::category_of
-const CATS = [
+// folder-category keys must match rdm_core::category_of (settings.categories);
+// distinct from the sidebar CATS above (list filters)
+const FOLDER_CATS = [
   ["images", "ft_images"], ["videos", "ft_videos"], ["audio", "ft_audio"],
   ["documents", "ft_docs"], ["apps", "ft_apps"], ["archives", "ft_arch"],
   ["others", "ft_others"],
@@ -1275,7 +1295,7 @@ $("b-options").onclick = async () => {
     <div class="fld"><label>${t("fld_parallel")}</label><input id="o-par" class="narrow" type="number" min="1" max="16" value="${s.max_parallel || 3}"></div>
     <div class="fld"><label>${t("fld_speed")}</label><input id="o-speed" class="narrow" type="number" min="0" step="64" value="${s.speed_limit || 0}"><span class="dim">KiB/s</span></div>
     <div class="fld"><label>${t("fld_cats")}</label>
-      <div class="cats">${CATS.map(([id, key]) => `<span>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t("ph_cats"))}" spellcheck="false" autocomplete="off">`).join("")}</div></div>
+      <div class="cats">${FOLDER_CATS.map(([id, key]) => `<span>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t("ph_cats"))}" spellcheck="false" autocomplete="off">`).join("")}</div></div>
     <div class="fld"><label>${t("fld_ftype")}</label>
       <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
         <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
@@ -1318,7 +1338,7 @@ $("b-options").onclick = async () => {
     if (!$("ft-all").checked && ints.length === 0) toast(t("ft_empty_all"));
     const auto = $("o-auto").checked;
     const catdirs = {};
-    for (const [id] of CATS) {
+    for (const [id] of FOLDER_CATS) {
       const v = $("c-" + id).value.trim();
       if (v) catdirs[id] = v;
     }
