@@ -327,14 +327,20 @@
 
   document.addEventListener("mouseover", (e) => {
     const overRdm = (btn && btn.contains(e.target)) || (menu && menu.contains(e.target));
+    if (overRdm) {
+      // any mouseleave on the way in armed the hide timer; a menu is useless
+      // if it evaporates while the user is still choosing
+      clearTimeout(hideTimer);
+      return;
+    }
     const el = mediaAt(e.target);
     if (!el) {
-      if (!overRdm) scheduleHide();
+      scheduleHide();
       return;
     }
     if (el.srcObject && !urlOf(el)) {
       // live camera / WebRTC stream, not a downloadable file
-      if (!overRdm) scheduleHide();
+      scheduleHide();
       return;
     }
     const url = urlOf(el);
