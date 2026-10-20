@@ -10,6 +10,7 @@ let intercept = true; // takeover: cancel native downloads, route to RDM
 let interceptExt = null; // null/[] = every type; array = extension allow-list
 let gotSettings = false; // a settings frame arrived on this port
 let settingsWaiters = [];
+let fmtWaiters = []; // {res, rej} pending extract replies (formats/error)
 
 function wakeSettings() {
   gotSettings = true;
@@ -76,6 +77,10 @@ function ensurePort() {
           chrome.storage.local.set({ interceptExt: v });
         }
         wakeSettings();
+      } else if (m && m.t === "formats" && fmtWaiters.length) {
+        fmtWaiters.shift().res(m);
+      } else if (m && m.t === "error" && fmtWaiters.length) {
+        fmtWaiters.shift().rej(new Error(m.error || "extract failed"));
       }
     });
     port.onDisconnect.addListener(() => {
@@ -140,6 +145,32 @@ async function pageOffer(url, height, audio) {
   });
 }
 
+// Ask the daemon which formats a page exposes (yt-dlp extract). The reply
+// arrives as a "formats" frame on the same native port.
+function pageFormats(url) {
+  return new Promise(async (res, rej) => {
+    const w = {
+      res,
+      rej: (e) => rej(e),
+      timer: setTimeout(() => {
+        const i = fmtWaiters.indexOf(w);
+        if (i >= 0) fmtWaiters.splice(i, 1);
+        rej(new Error("timeout"));
+      }, 25000),
+    };
+    fmtWaiters.push(w);
+    try {
+      const cookie = await cookieHeader(url);
+      ensurePort().postMessage({ t: "extract", url, cookie, ua: navigator.userAgent });
+    } catch (e) {
+      clearTimeout(w.timer);
+      const i = fmtWaiters.indexOf(w);
+      if (i >= 0) fmtWaiters.splice(i, 1);
+      rej(e);
+    }
+  });
+}
+
 // ---- context menu (M1) ----
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -167,6 +198,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   } else if (msg && msg.t === "page-offer" && msg.url) {
     pageOffer(msg.url, msg.height, msg.audio).catch(console.warn);
     sendResponse({ ok: true });
+  } else if (msg && msg.t === "page-formats" && msg.url) {
+    pageFormats(msg.url)
+      .then((f) => sendResponse({ ok: true, formats: (f && f.formats) || [], title: (f && f.title) || "" }))
+      .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+    return true; // async sendResponse
   }
   return false;
 });

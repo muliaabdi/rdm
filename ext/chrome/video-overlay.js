@@ -10,6 +10,9 @@
   let current = null;
   let pageModeNow = false;
   let pageUrl = null;
+  let menu = null;
+  let menuOutside = null;
+  let menuKey = null;
 
   function urlOf(el) {
     const u = (el && (el.currentSrc || el.src)) || "";
@@ -52,8 +55,143 @@
     if (btn) btn.remove();
     btn = null;
     current = null;
+    closeMenu();
     window.removeEventListener("scroll", place, true);
     window.removeEventListener("resize", place);
+  }
+
+  function closeMenu() {
+    if (menu) menu.remove();
+    menu = null;
+    if (menuOutside) {
+      document.removeEventListener("mousedown", menuOutside, true);
+      menuOutside = null;
+    }
+    if (menuKey) {
+      document.removeEventListener("keydown", menuKey, true);
+      menuKey = null;
+    }
+  }
+
+  // Resolution picker: click the pill on a page-mode video and choose the
+  // quality from the formats the daemon extracts (yt-dlp) for that page.
+  function openMenu() {
+    closeMenu();
+    menu = document.createElement("div");
+    menu.style.cssText = [
+      "all:initial",
+      "position:fixed",
+      "left:0",
+      "top:0",
+      "z-index:2147483647",
+    ].join(";");
+    const root = menu.attachShadow({ mode: "open" });
+    root.innerHTML = `<style>
+      .box {
+        font:12px/1 system-ui,sans-serif; color:#fff;
+        background:rgba(20,21,25,.96); border:1px solid #1a73e8; border-radius:10px;
+        box-shadow:0 6px 18px rgba(0,0,0,.45); padding:4px; min-width:120px;
+        max-height:224px; overflow-y:auto; user-select:none;
+      }
+      .hd { font-size:10px; color:#9aa4b2; padding:5px 10px 3px; letter-spacing:.04em; }
+      .it {
+        display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:7px;
+        cursor:pointer; white-space:nowrap;
+      }
+      .it:hover { background:#2a4b7c }
+      .it b { font-weight:600 }
+      .it .tag { font-size:9.5px; color:#ffd479; border:1px solid rgba(255,212,121,.5);
+                 border-radius:4px; padding:1px 4px; }
+      .dim { color:#9aa4b2 }
+    </style>
+    <div class="box"><div class="hd">RDM — loading formats…</div></div>`;
+    document.documentElement.append(menu);
+    clearTimeout(hideTimer);
+
+    const box = () => root.querySelector(".box");
+    const url = pageUrl || location.href;
+    chrome.runtime.sendMessage({ t: "page-formats", url }, (resp) => {
+      if (!menu) return;
+      const err = chrome.runtime.lastError;
+      if (err || !resp || !resp.ok) {
+        // extraction failed or timed out: keep the two reliable choices
+        buildItems([
+          { label: "Best", height: 1080, audio: false, tag: "auto" },
+          { label: "MP3", height: 0, audio: true, tag: "audio" },
+        ], "RDM — fallback");
+        return;
+      }
+      const fmts = Array.isArray(resp.formats) ? resp.formats : [];
+      const heights = [...new Set(
+        fmts.filter((f) => f.vcodec && f.vcodec !== "none" && f.height)
+            .map((f) => f.height)
+      )].sort((a, b) => b - a);
+      const items = heights.map((h) => ({
+        label: h + "p",
+        height: h,
+        audio: false,
+        tag: h === heights[0] ? "best" : "",
+      }));
+      if (fmts.some((f) => f.acodec && f.acodec !== "none")) {
+        items.push({ label: "MP3", height: 0, audio: true, tag: "audio" });
+      }
+      if (!items.length) items.push({ label: "Best", height: 1080, audio: false, tag: "auto" });
+      buildItems(items, resp.title ? clip(resp.title, 26) : "RDM — quality");
+    });
+
+    function clip(s, n) {
+      return s.length > n ? s.slice(0, n - 1) + "…" : s;
+    }
+
+    function buildItems(items, title) {
+      const b = box();
+      b.innerHTML = `<div class="hd">${title.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</div>` +
+        items
+          .map(
+            (it, i) =>
+              `<div class="it" data-i="${i}"><b>${it.label}</b>${
+                it.tag ? `<span class="tag">${it.tag}</span>` : ""
+              }${it.audio ? `<span class="dim">audio only</span>` : ""}</div>`
+          )
+          .join("");
+      b.querySelectorAll(".it").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const it = items[Number(el.dataset.i)];
+          el.querySelector("b").textContent = "…";
+          chrome.runtime.sendMessage(
+            { t: "page-offer", url, height: it.height || 1080, audio: !!it.audio },
+            () => {
+              el.querySelector("b").textContent = chrome.runtime.lastError ? "ERR" : "✓";
+              setTimeout(() => { closeMenu(); destroy(); }, 900);
+            }
+          );
+        });
+      });
+      placeMenu();
+    }
+
+    menuOutside = (e) => {
+      if (menu && !menu.contains(e.target) && (!btn || !btn.contains(e.target))) closeMenu();
+    };
+    document.addEventListener("mousedown", menuOutside, true);
+    menuKey = (e) => {
+      if (e.key === "Escape") closeMenu();
+    };
+    document.addEventListener("keydown", menuKey, true);
+    placeMenu();
+  }
+
+  function placeMenu() {
+    if (!menu || !btn) return;
+    const r = btn.getBoundingClientRect();
+    const b = menu.shadowRoot && menu.shadowRoot.querySelector(".box");
+    const w = (b && b.offsetWidth) || 130;
+    const h = (b && b.offsetHeight) || 90;
+    const x = Math.max(4, Math.min(r.right - w, innerWidth - w - 4));
+    const y = r.bottom + 6 + h > innerHeight ? Math.max(4, r.top - h - 6) : r.bottom + 6;
+    menu.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
   }
 
   function place() {
@@ -67,6 +205,7 @@
     const x = Math.max(4, Math.min(r.right - w - 8, innerWidth - w - 4));
     const y = Math.max(4, r.top + 8);
     btn.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    placeMenu();
   }
 
   function show(el, url, isPage) {
@@ -119,13 +258,12 @@
         const u = urlOf(current || {});
         const b = btn.shadowRoot.querySelector("#__rdm_lbl");
         if (pageModeNow) {
-          b.textContent = "…";
-          chrome.runtime.sendMessage({ t: "page-offer", url: pageUrl || location.href }, () => {
-            const err = chrome.runtime.lastError;
-            b.textContent = err ? "ERR" : "✓";
-          });
-          clearTimeout(hideTimer);
-          hideTimer = setTimeout(destroy, 1200);
+          // page video: open the resolution picker instead of sending blind
+          if (menu) {
+            closeMenu();
+            return;
+          }
+          openMenu();
           return;
         }
         if (!u) return;
@@ -173,7 +311,9 @@
 
   function scheduleHide() {
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(destroy, 350);
+    // grace period is longer with the menu open so moving pill -> menu
+    // across the gap does not tear both down
+    hideTimer = setTimeout(destroy, menu ? 600 : 350);
   }
 
   // Resolve the media element for a hovered node. Players (JWPlayer, video.js,
@@ -191,14 +331,15 @@
   }
 
   document.addEventListener("mouseover", (e) => {
+    const overRdm = (btn && btn.contains(e.target)) || (menu && menu.contains(e.target));
     const el = mediaAt(e.target);
     if (!el) {
-      if (btn && !btn.contains(e.target)) scheduleHide();
+      if (!overRdm) scheduleHide();
       return;
     }
     if (el.srcObject && !urlOf(el)) {
       // live camera / WebRTC stream, not a downloadable file
-      if (btn && !btn.contains(e.target)) scheduleHide();
+      if (!overRdm) scheduleHide();
       return;
     }
     const url = urlOf(el);

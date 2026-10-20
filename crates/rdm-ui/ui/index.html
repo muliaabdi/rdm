@@ -6,13 +6,37 @@
 <style>
   :root {
     color-scheme: light;
-    --bg: #f5f4f0; --chrome: #f7f6f2; --chrome-hi: #fdfcfa; --chrome-lo: #eeede7;
-    --line: #e4e2d9; --line2: #d6d3c7;
-    --txt: #23262b; --dim: #6a6f76;
+    --bg: #f5f4f0; --chrome: #f7f6f2; --chrome-hi: #fdfcfa; --chrome-lo: #eeede7; --chrome-act: #e5e3da;
+    --line: #e4e2d9; --line2: #d6d3c7; --line-hov: #c3c0b2;
+    --txt: #23262b; --dim: #6a6f76; --txt2: #4a4e54; --dim2: #8b8e93;
     --accent: #2f6fb8; --sel: #316ac5; --sel-bg: #e3eefd; --sel-edge: #27509e;
     --green: #2e8b30; --green-hi: #57b85c;
     --amber: #96520a; --red: #c0392b; --fill-fail: #d9534f; --fill-pause: #d99a2b;
-    --track: #eceeec;
+    --track: #eceeec; --track2: #eaeceb;
+    --panel: #fff; --panel-hi: #fbfaf8; --hover: #f3f6fa; --rowline: #f5f4ef;
+    --cat-sel: #e7eefb; --cat-sel-txt: #1d4d8f; --cat-sel-cnt: #4d6f9f;
+    --done: #0a5d0e; --sel-dim: #5c6470;
+    --input-bg: #fff; --btn-bg: #fff; --btn-hi: #f4f2ea; --btn-act: #eae7dc;
+    --menu-bg: #fdfcfa; --menu-hov: #e9effb;
+    --sb: #d8d5ca; --sb-hi: #c3c0b2; --sb-edge: #fff;
+    --focus: #8fb1e6;
+  }
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1c1e23; --chrome: #22252b; --chrome-hi: #262a31; --chrome-lo: #2a2e36; --chrome-act: #333842;
+    --line: #2e323a; --line2: #3a3f4a; --line-hov: #4a505c;
+    --txt: #d8dce2; --dim: #9aa0a8; --txt2: #b7bdc5; --dim2: #7c828b;
+    --accent: #4f8ddb; --sel: #3f6fb8; --sel-bg: #24344b; --sel-edge: #2f5aa8;
+    --green: #53b356; --green-hi: #6ec271;
+    --amber: #d9a441; --red: #e0685c; --fill-fail: #d9534f; --fill-pause: #d99a2b;
+    --track: #2a2d33; --track2: #2f323a;
+    --panel: #202329; --panel-hi: #24282f; --hover: #262b33; --rowline: #26292f;
+    --cat-sel: #24344b; --cat-sel-txt: #9cc2f0; --cat-sel-cnt: #6f92c4;
+    --done: #58c05c; --sel-dim: #a3abbb;
+    --input-bg: #1a1d22; --btn-bg: #2a2e36; --btn-hi: #31353f; --btn-act: #3a3f4a;
+    --menu-bg: #262a31; --menu-hov: #2c3a52;
+    --sb: #3d424c; --sb-hi: #4a505c; --sb-edge: #202329;
+    --focus: #5f8fd9;
   }
   * { box-sizing: border-box; user-select: none; }
   html, body { height: 100%; }
@@ -42,17 +66,17 @@
   }
   .tbtn:hover { background: var(--chrome-lo); }
   .tbtn:hover svg { transform: translateY(-1px); }
-  .tbtn:active { background: #e5e3da; }
+  .tbtn:active { background: var(--chrome-act); }
   .tbtn:active svg { transform: translateY(0); }
   .tbtn[disabled] { opacity: .35; pointer-events: none; }
-  .tbtn:focus-visible { outline: 2px solid #8fb1e6; outline-offset: -3px; }
-  .tbtn svg { width: 20px; height: 20px; transition: transform .13s ease; }
-  .tbtn span { font-size: 11px; color: #4a4e54; }
+  .tbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+  .tbtn svg { width: 20px; height: 20px; transition: transform .13s ease; color: var(--dim); }
+  .tbtn span { font-size: 11px; color: var(--txt2); }
   .tsep { width: 1px; margin: 8px 5px; flex: none; background: var(--line2); opacity: .7; }
   #spacer { flex: 1; }
 
   /* ---- main split ---- */
-  #main { flex: 1; display: flex; min-height: 0; background: #fff; }
+  #main { flex: 1; display: flex; min-height: 0; background: var(--panel); }
 
   /* ---- categories ---- */
   #cats {
@@ -71,20 +95,20 @@
     transition: background-color .12s ease;
   }
   .cat:hover { background: var(--chrome-lo); }
-  .cat.sel { background: #e7eefb; color: #1d4d8f; }
+  .cat.sel { background: var(--cat-sel); color: var(--cat-sel-txt); }
   .cat .ic { width: 9px; height: 9px; border-radius: 50%; flex: none; }
   .cat .cnt { margin-left: auto; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
-  .cat.sel .cnt { color: #4d6f9f; }
+  .cat.sel .cnt { color: var(--cat-sel-cnt); }
 
   /* ---- table ---- */
-  #listwrap { flex: 1; min-width: 0; background: #fff; display: flex; flex-direction: column; }
+  #listwrap { flex: 1; min-width: 0; background: var(--panel); display: flex; flex-direction: column; }
   #head, .row {
     display: grid;
     grid-template-columns: minmax(130px, 1fr) 76px 120px 82px 70px 76px;
     padding-right: 0;
   }
   #head {
-    background: #fbfaf8;
+    background: var(--panel-hi);
     border-bottom: 1px solid var(--line);
     font-weight: 600; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
   }
@@ -92,13 +116,13 @@
   #rows { flex: 1; overflow-y: auto; }
   .row {
     height: 30px; align-items: center; cursor: default;
-    border-bottom: 1px solid #f5f4ef;
+    border-bottom: 1px solid var(--rowline);
     transition: background-color .1s ease;
   }
-  .row:hover { background: #f3f6fa; }
+  .row:hover { background: var(--hover); }
   .row.sel { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
-  .row:focus-visible { outline: 2px solid #8fb1e6; outline-offset: -2px; }
-  .row.sel .dim { color: #5c6470; }
+  .row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  .row.sel .dim { color: var(--sel-dim); }
   .row .name {
     display: flex; align-items: center; gap: 8px; padding: 0 8px;
     overflow: hidden; white-space: nowrap;
@@ -113,12 +137,12 @@
   .st.paused { color: var(--amber); }
   .st.queued { color: #4a7bd0; }
   .st.failed { color: var(--red); }
-  .st.completed { color: #0a5d0e; }
+  .st.completed { color: var(--done); }
 
   .row > .pcol { padding: 0 8px; }
   .cellbar {
     position: relative; height: 10px; border-radius: 999px; overflow: hidden;
-    background: #eaeceb;
+    background: var(--track2);
   }
   .cellbar > .fill {
     position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
@@ -142,7 +166,7 @@
   .dgrid .k { color: var(--dim); }
   .dgrid .v { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
   .dt-gtitle { font-size: 10px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
-  .dgraph { width: 100%; height: 96px; display: block; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .dgraph { width: 100%; height: 96px; display: block; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 
   /* ---- status bar ---- */
   #status {
@@ -152,8 +176,8 @@
   }
   #s-conn { margin-left: auto; display: flex; align-items: center; gap: 6px; }
   #s-conn .dot { width: 7px; height: 7px; border-radius: 50%; background: #c9a520; }
-  #s-conn.ok .dot { background: #2e8b30; }
-  #s-conn.bad .dot { background: #c0392b; }
+  #s-conn.ok .dot { background: var(--green); }
+  #s-conn.bad .dot { background: var(--red); }
 
   /* ---- modal ---- */
   #modal {
@@ -164,7 +188,7 @@
   #modal.open { opacity: 1; visibility: visible; }
   #dlg {
     width: 400px; max-width: calc(100vw - 32px);
-    background: #fbfaf7; border: 1px solid var(--line2); border-radius: 12px;
+    background: var(--panel-hi); border: 1px solid var(--line2); border-radius: 12px;
     box-shadow: 0 14px 44px rgba(24,22,14,.22);
     padding: 16px 18px; transform: translateY(8px) scale(.98); transition: transform .14s ease;
   }
@@ -172,34 +196,34 @@
   #dlg h3 { margin: 0 0 12px; font-size: 13px; }
   #dlg input, #dlg select {
     width: 100%; padding: 7px 10px; margin-bottom: 11px;
-    border: 1px solid var(--line2); border-radius: 8px; font: inherit; background: #fff;
+    border: 1px solid var(--line2); border-radius: 8px; font: inherit; background: var(--input-bg); color: var(--txt);
     transition: border-color .12s ease;
   }
-  #dlg input:hover, #dlg select:hover { border-color: #c3c0b2; }
-  #dlg input:focus-visible, #dlg select:focus-visible { outline: 2px solid #8fb1e6; outline-offset: -1px; border-color: #8fb1e6; }
+  #dlg input:hover, #dlg select:hover { border-color: var(--line-hov); }
+  #dlg input:focus-visible, #dlg select:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; border-color: var(--focus); }
   #dlg .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
   #dlg button {
     padding: 6px 18px; border: 1px solid var(--line2); border-radius: 8px; cursor: default;
-    background: #fff; color: var(--txt);
+    background: var(--btn-bg); color: var(--txt);
     transition: background-color .12s ease, border-color .12s ease;
   }
-  #dlg button:hover { background: #f4f2ea; border-color: #c3c0b2; }
-  #dlg button:active { background: #eae7dc; }
-  #dlg button:focus-visible { outline: 2px solid #8fb1e6; outline-offset: 1px; }
+  #dlg button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
+  #dlg button:active { background: var(--btn-act); }
+  #dlg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   #dlg button.pri { border-color: transparent; color: #fff; background: #3569b8; }
   #dlg button.pri:hover { background: #3d74c6; }
   #dlg button.pri:active { background: #2e5da3; }
   .mhint { font-size: 11px; color: var(--dim); margin: -4px 0 11px; min-height: 14px; }
   .empty {
-    grid-column: 1 / -1; padding: 48px 20px; text-align: center; color: #8b8e93;
+    grid-column: 1 / -1; padding: 48px 20px; text-align: center; color: var(--dim2);
   }
   .empty svg { width: 36px; height: 36px; margin-bottom: 10px; opacity: .4; }
-  .empty .empty-hint { margin-top: 5px; font-size: 11px; color: #9a9da1; }
+  .empty .empty-hint { margin-top: 5px; font-size: 11px; color: var(--dim2); }
 
   /* ---- context menu ---- */
   #ctx {
     position: fixed; z-index: 60; min-width: 178px; display: none; padding: 5px;
-    background: #fdfcfa; border: 1px solid var(--line2); border-radius: 10px;
+    background: var(--menu-bg); border: 1px solid var(--line2); border-radius: 10px;
     box-shadow: 0 10px 30px rgba(24,22,14,.20);
   }
   #ctx.open { display: block; }
@@ -209,10 +233,10 @@
     background: transparent; font: inherit; color: var(--txt); text-align: left; cursor: default;
     transition: background-color .1s ease;
   }
-  #ctx button:hover { background: #e9effb; }
-  #ctx button:focus-visible { outline: 2px solid #8fb1e6; outline-offset: -2px; }
+  #ctx button:hover { background: var(--menu-hov); }
+  #ctx button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   #ctx button:disabled { opacity: .35; pointer-events: none; }
-  #ctx button svg { width: 14px; height: 14px; flex: none; }
+  #ctx button svg { width: 14px; height: 14px; flex: none; color: var(--dim); }
   #ctx .sep { height: 1px; margin: 4px 9px; background: var(--line); }
 
   /* ---- toast ---- */
@@ -228,31 +252,43 @@
   }
   #toast.on { opacity: 1; transform: translateX(-50%); }
   #dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 11px; }
-  #dlg .fld label { width: 96px; color: #4a4e54; }
+  #dlg .fld label { width: 96px; color: var(--txt2); }
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
   #dlg .fld input.narrow { flex: 0 0 108px; }
   #dlg .fld input.chk { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #2b6cff; }
   /* checkbox + inline caption inside a field row (e.g. delete confirmation) */
-  #dlg .fld > label.fchk { width: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: 400; color: #3c4046; cursor: pointer; }
+  #dlg .fld > label.fchk { width: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: 400; color: var(--txt2); cursor: pointer; }
   #dlg .fld > label.fchk input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #2b6cff; }
   #dlg .ftypes { flex: 1; display: flex; flex-wrap: wrap; gap: 7px 4px; }
-  #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: #3c4046; cursor: pointer; }
+  #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: var(--txt2); cursor: pointer; }
   #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
   #dlg .ftypes.all .fchk:nth-child(n+2) { opacity: .4; }
   #dlg .cats { flex: 1; display: grid; grid-template-columns: 84px 1fr; gap: 6px 8px; align-items: center; }
-  #dlg .cats span { color: #3c4046; font-size: 12px; }
+  #dlg .cats span { color: var(--txt2); font-size: 12px; }
   #dlg .cats input { margin: 0; min-width: 0; }
 
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #d8d5ca; border: 2px solid #fff; border-radius: 999px; }
-  ::-webkit-scrollbar-thumb:hover { background: #c3c0b2; }
+  ::-webkit-scrollbar-thumb { background: var(--sb); border: 2px solid var(--sb-edge); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--sb-hi); }
 
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
   }
 </style>
+<script>
+  // apply the saved theme before first paint (settings.json mirror in
+  // localStorage; the authoritative copy arrives with get_settings)
+  (() => {
+    const mq = matchMedia("(prefers-color-scheme: dark)");
+    const pref = localStorage.rdm_theme || "system";
+    const eff = pref === "dark" || (pref === "system" && mq.matches) ? "dark" : "light";
+    const el = document.documentElement;
+    el.dataset.theme = eff;
+    el.style.colorScheme = eff;
+  })();
+</script>
 </head>
 <body>
 
@@ -276,12 +312,12 @@
     <span data-i18n="delete">Delete</span>
   </button>
   <button type="button" class="tbtn" id="b-restart" disabled data-i18n-title="restart">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 3.5V8h-4.5"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 3.5V8h-4.5"/></svg>
     <span data-i18n="restart">Restart</span>
   </button>
   <div id="spacer"></div>
   <button type="button" class="tbtn" id="b-options" data-i18n-title="settings">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3m0 13v3M2.5 12h3m13 0h3M5.3 5.3l2.1 2.1m9.2 9.2l2.1 2.1m0-13.4l-2.1 2.1m-9.2 9.2l-2.1 2.1"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3m0 13v3M2.5 12h3m13 0h3M5.3 5.3l2.1 2.1m9.2 9.2l2.1 2.1m0-13.4l-2.1 2.1m-9.2 9.2l-2.1 2.1"/></svg>
     <span data-i18n="settings">Settings</span>
   </button>
 </div>
@@ -366,7 +402,8 @@ const I18N = {
     hint_fail: "Detection failed: {e}",
     dlg_quality_title: "Choose quality", opt_audio: "Audio only",
     dlg_settings_title: "Settings", fld_dir: "Folder", fld_segments: "Segments",
-    ph_dir: "default: ~/Downloads", fld_lang: "Language", btn_save: "Save",
+    ph_dir: "default: ~/Downloads", fld_lang: "Language", fld_theme: "Theme",
+    opt_system: "System", opt_light: "Light", opt_dark: "Dark", btn_save: "Save",
     fld_speed: "Speed limit", ph_speed: "0 = unlimited",
     fld_cats: "Category folders", ph_cats: "empty = Folder",
     fld_ytdlp: "Update yt-dlp automatically",
@@ -413,7 +450,8 @@ const I18N = {
     hint_fail: "Gagal mendeteksi: {e}",
     dlg_quality_title: "Pilih kualitas", opt_audio: "Audio saja",
     dlg_settings_title: "Pengaturan", fld_dir: "Folder", fld_segments: "Segmen",
-    ph_dir: "bawaan: ~/Downloads", fld_lang: "Bahasa", btn_save: "Simpan",
+    ph_dir: "bawaan: ~/Downloads", fld_lang: "Bahasa", fld_theme: "Tema",
+    opt_system: "Sistem", opt_light: "Terang", opt_dark: "Gelap", btn_save: "Simpan",
     fld_speed: "Batas kecepatan", ph_speed: "0 = tanpa batas",
     fld_cats: "Folder kategori", ph_cats: "kosong = Folder",
     fld_ytdlp: "Perbarui yt-dlp otomatis",
@@ -432,6 +470,23 @@ const I18N = {
   },
 };
 let lang = "en";
+
+// ---- theme ----
+// Preference order: settings.json (pushed via setTheme on load/save) with a
+// localStorage mirror so the pre-paint script in <head> can apply it too.
+const mqDark = matchMedia("(prefers-color-scheme: dark)");
+let lastGraph = null; // [canvas, samples] to repaint when colors flip
+function setTheme(pref) {
+  const eff = pref === "dark" || (pref === "system" && mqDark.matches) ? "dark" : "light";
+  const el = document.documentElement;
+  el.dataset.theme = eff;
+  el.style.colorScheme = eff;
+  localStorage.rdm_theme = pref;
+  if (lastGraph) paintGraph(...lastGraph);
+}
+mqDark.addEventListener?.("change", () => {
+  if ((localStorage.rdm_theme || "system") === "system") setTheme("system");
+});
 
 function t(key, vars) {
   let s = (I18N[lang] || I18N.en)[key] ?? I18N.en[key] ?? key;
@@ -626,7 +681,7 @@ function renderRows() {
   const box = $("rows");
   if (!rows.length) {
     box.innerHTML = `<div class="empty">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10m-4-4 4 4 4-4"/><path d="M4 17v1.5C4 19.3 4.7 20 5.5 20h13c.8 0 1.5-.7 1.5-1.5V17"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10m-4-4 4 4 4-4"/><path d="M4 17v1.5C4 19.3 4.7 20 5.5 20h13c.8 0 1.5-.7 1.5-1.5V17"/></svg>
       <div>${t("empty_category")}</div>
       <div class="empty-hint">${t("empty_hint")}</div></div>`;
     box.dataset.ids = "";
@@ -696,12 +751,12 @@ document.addEventListener("contextmenu", (e) => {
 
 /* ---------- row context menu ---------- */
 const CTX_ICONS = {
-  details: '<svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 20v-7m5 7V6m5 14v-10m5 10V9"/></svg>',
+  details: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 20v-7m5 7V6m5 14v-10m5 10V9"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="#c0392b" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   resume: '<svg viewBox="0 0 24 24" fill="#2e8b30" aria-hidden="true"><path d="M7.5 4.8c0-.9 1-1.5 1.8-1L19 10.2c.8.5.8 1.6 0 2.1L9.3 18.9c-.8.5-1.8-.1-1.8-1z"/></svg>',
   delete: '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8c0-.4.4-.8.8-.8h3.4c.4 0 .8.4.8.8V7m-9.7 0l.9 12.3c.1.9.8 1.7 1.8 1.7h7c1 0 1.7-.8 1.8-1.7L17.2 7M10 11v6m4-6v6"/></svg>',
-  openfile: '<svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6.8C6 3 5.3 3.7 5.3 4.5v15c0 .8.7 1.5 1.5 1.5h10.4c.8 0 1.5-.7 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.7M9.4 12.4h5.2M9.4 16h5.2"/></svg>',
-  openfolder: '<svg viewBox="0 0 24 24" fill="none" stroke="#6b6b6b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5c0-.8.7-1.5 1.5-1.5h4l2 2.5h8c.8 0 1.5.7 1.5 1.5v9c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z"/></svg>',
+  openfile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6.8C6 3 5.3 3.7 5.3 4.5v15c0 .8.7 1.5 1.5 1.5h10.4c.8 0 1.5-.7 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.7M9.4 12.4h5.2M9.4 16h5.2"/></svg>',
+  openfolder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5c0-.8.7-1.5 1.5-1.5h4l2 2.5h8c.8 0 1.5.7 1.5 1.5v9c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z"/></svg>',
 };
 let ctxId = null;
 function closeCtx() {
@@ -922,6 +977,7 @@ function segColor(i, a) {
 }
 function paintGraph(cv, samples) {
   if (!cv || !cv.getContext) return;
+  lastGraph = [cv, samples];
   const ctx = cv.getContext("2d");
   const r = cv.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -929,14 +985,17 @@ function paintGraph(cv, samples) {
   const h = Math.max(24, Math.round(r.height * dpr));
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   ctx.clearRect(0, 0, w, h);
+  const C = document.documentElement.dataset.theme === "dark"
+    ? { grid: "#2e323a", grid2: "#3a3f4a", line: "#53b356", txt: "#9aa0a8" }
+    : { grid: "#e7e4d6", grid2: "#d5d2c2", line: "#2e8b30", txt: "#7a7a7a" };
   const vals = samples.map((s) => s.v);
   const max = Math.max(1024, ...vals) * 1.15;
-  ctx.strokeStyle = "#e7e4d6";
+  ctx.strokeStyle = C.grid;
   ctx.lineWidth = 1;
   const step = 34 * dpr;
   for (let x = step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
   for (let y = step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-  ctx.strokeStyle = "#d5d2c2";
+  ctx.strokeStyle = C.grid2;
   ctx.beginPath(); ctx.moveTo(0, h - 1); ctx.lineTo(w, h - 1); ctx.stroke();
   const peak = Math.max(0, ...vals);
   if (peak >= 1 && samples.length > 1) {
@@ -961,10 +1020,10 @@ function paintGraph(cv, samples) {
       }
       ctx.beginPath();
       samples.forEach((sm, i) => { const yy = y(sm.v); i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy); });
-      ctx.strokeStyle = "#2e8b30"; ctx.lineWidth = 1.5 * dpr;
+      ctx.strokeStyle = C.line; ctx.lineWidth = 1.5 * dpr;
       ctx.lineJoin = "round";
       ctx.stroke();
-      ctx.fillStyle = "#7a7a7a";
+      ctx.fillStyle = C.txt;
       ctx.font = `${10 * dpr}px system-ui, sans-serif`;
       ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
       const lbl = `${maxSeg} seg`;
@@ -976,17 +1035,17 @@ function paintGraph(cv, samples) {
         i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy);
       });
       ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-      ctx.fillStyle = "rgba(87,184,92,.30)";
+      ctx.fillStyle = document.documentElement.dataset.theme === "dark" ? "rgba(83,179,86,.28)" : "rgba(87,184,92,.30)";
       ctx.fill();
-      ctx.strokeStyle = "#2e8b30"; ctx.lineWidth = 1.5 * dpr;
+      ctx.strokeStyle = C.line; ctx.lineWidth = 1.5 * dpr;
       ctx.lineJoin = "round";
       ctx.stroke();
-      ctx.fillStyle = "#7a7a7a";
+      ctx.fillStyle = C.txt;
       ctx.font = `${10 * dpr}px system-ui, sans-serif`;
       ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
     }
   } else {
-    ctx.fillStyle = "#7a7a7a";
+    ctx.fillStyle = C.txt;
     ctx.font = `${10 * dpr}px system-ui, sans-serif`;
     ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
   }
@@ -1226,6 +1285,10 @@ $("b-options").onclick = async () => {
     <div class="fld"><label>${t("fld_lang")}</label><select id="o-lang">
       <option value="en"${lang === "en" ? " selected" : ""}>English</option>
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
+    <div class="fld"><label>${t("fld_theme")}</label><select id="o-theme">
+      <option value="system"${(localStorage.rdm_theme || "system") === "system" ? " selected" : ""}>${t("opt_system")}</option>
+      <option value="light"${localStorage.rdm_theme === "light" ? " selected" : ""}>${t("opt_light")}</option>
+      <option value="dark"${localStorage.rdm_theme === "dark" ? " selected" : ""}>${t("opt_dark")}</option></select></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-auto" type="checkbox"${auto ? " checked" : ""}><span>${t("fld_autostart")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}><span>${t("fld_notify")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-ytdlp" type="checkbox"${s.ytdlp_update !== false ? " checked" : ""}><span>${t("fld_ytdlp")}</span></label></div>
@@ -1264,9 +1327,10 @@ $("b-options").onclick = async () => {
       v: { ...s, dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8,
            max_parallel: Math.min(16, Math.max(1, Number($("o-par").value) || 3)),
            speed_limit: Math.max(0, Number($("o-speed").value) || 0),
-           categories: catdirs, ytdlp_update: $("o-ytdlp").checked,
+           categories: catdirs, ytdlp_update: $("o-ytdlp").checked, theme: $("o-theme").value,
            lang: next, intercept_ext: ints, autostart: auto, notify: $("o-notify").checked },
     });
+    setTheme($("o-theme").value);
     await invoke("set_autostart", { enabled: auto }).catch((e) => toast(trErr(e)));
     closeModal();
     if (next !== lang) setLang(next);
@@ -1277,6 +1341,7 @@ $("b-options").onclick = async () => {
   try {
     const s = await invoke("get_settings");
     if (s && s.lang === "id") lang = "id";
+    if (s && s.theme) setTheme(s.theme);
     // keep the autostart entry pointing at this build
     if (s && s.autostart) invoke("set_autostart", { enabled: true }).catch(() => {});
   } catch (e) { diag("lang load: " + e); }
