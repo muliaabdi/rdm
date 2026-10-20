@@ -24,6 +24,9 @@ pub const MIN_STEAL: u64 = 1024 * 1024;
 pub struct Limits {
     /// Global cap in bytes/second across all segments.
     pub max_speed: Option<u64>,
+    /// Shared process-wide bucket (daemon passes one so the cap covers every
+    /// concurrent job); when `None` a private bucket is created per job.
+    pub limiter: Option<Arc<Limiter>>,
     /// Per-segment retry count before failing the job.
     pub retries: u32,
     /// Do not split files smaller than this.
@@ -36,6 +39,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_speed: None,
+            limiter: None,
             retries: 5,
             min_segment_size: DEFAULT_MIN_SEGMENT,
             sha256: false,
@@ -66,6 +70,63 @@ pub fn job_from_url(url: &str, out_dir: Option<PathBuf>, segments: u64, limits: 
         limits,
         fresh: false,
     }
+}
+
+/// Category bucket for a filename, used to auto-sort downloads into the
+/// per-category folders configured in the UI.
+pub fn category_of(name: &str) -> &'static str {
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    const GROUPS: [(&str, &[&str]); 7] = [
+        (
+            "images",
+            &[
+                "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico", "tiff", "avif", "heic",
+            ],
+        ),
+        (
+            "videos",
+            &[
+                "mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v", "mpg", "mpeg", "ts", "3gp",
+            ],
+        ),
+        (
+            "audio",
+            &[
+                "mp3", "wav", "flac", "aac", "ogg", "opus", "m4a", "wma", "mid",
+            ],
+        ),
+        (
+            "documents",
+            &[
+                "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt", "ods",
+                "odp", "csv", "epub", "mobi",
+            ],
+        ),
+        (
+            "apps",
+            &[
+                "exe", "msi", "apk", "deb", "rpm", "appimage", "flatpak", "snap", "dmg", "pkg",
+                "jar",
+            ],
+        ),
+        (
+            "archives",
+            &[
+                "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "zst", "lz", "lzma", "cab", "iso",
+                "img",
+            ],
+        ),
+        (
+            "others",
+            &["torrent", "bin", "dat", "m3u8", "mpd", "nfo", "srt"],
+        ),
+    ];
+    for (cat, exts) in GROUPS {
+        if exts.contains(&ext.as_str()) {
+            return cat;
+        }
+    }
+    "others"
 }
 
 /// Extension from remote metadata (yt-dlp etc): strict allow-list so a
@@ -119,26 +180,43 @@ fn state_path(out: &std::path::Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Simple global token bucket, refilled lazily on access.
+/// Token bucket shared by every transfer (all jobs, all segments), so a
+/// configured cap is a true global cap. `0` means unlimited.
 #[derive(Debug)]
-struct Limiter {
-    max: Option<u64>,
-    inner: Mutex<(u64, Instant)>, // (budget, last refill)
+pub struct Limiter {
+    max: std::sync::atomic::AtomicU64, // bytes/second, 0 = unlimited
+    inner: Mutex<(u64, Instant)>,      // (budget, last refill)
 }
 
 impl Limiter {
-    fn new(max: Option<u64>) -> Self {
+    pub fn new(max: Option<u64>) -> Self {
         Self {
-            max,
+            max: std::sync::atomic::AtomicU64::new(max.unwrap_or(0)),
             inner: Mutex::new((0, Instant::now())),
         }
     }
+    /// Change the cap at runtime (settings dialog). `None`/`Some(0)` = unlimited.
+    pub fn set_max(&self, max: Option<u64>) {
+        self.max
+            .store(max.unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+    }
     /// Wait until `n` bytes may be transferred.
-    async fn acquire(&self, n: usize) {
-        let Some(max) = self.max else { return };
-        if max == 0 {
-            return;
+    pub async fn acquire(&self, n: usize) {
+        // a request larger than the per-second cap is served in cap-sized
+        // slices, otherwise the bucket could never fill up to `n`
+        let mut left = n as u64;
+        while left > 0 {
+            let max = self.max.load(std::sync::atomic::Ordering::Relaxed);
+            if max == 0 {
+                return;
+            }
+            let take = left.min(max);
+            self.take(take, max).await;
+            left -= take;
         }
+    }
+
+    async fn take(&self, n: u64, max: u64) {
         let mut guard = self.inner.lock().await;
         loop {
             let now = Instant::now();
@@ -147,11 +225,11 @@ impl Limiter {
                 guard.0 = guard.0.saturating_add(elapsed * max / 1000).min(max);
                 guard.1 = now;
             }
-            if guard.0 as usize >= n {
-                guard.0 -= n as u64;
+            if guard.0 >= n {
+                guard.0 -= n;
                 return;
             }
-            let need = n as u64 - guard.0;
+            let need = n - guard.0;
             let wait_ms = (need * 1000 / max).clamp(1, 1000);
             drop(guard);
             tokio::time::sleep(Duration::from_millis(wait_ms)).await;
@@ -234,7 +312,7 @@ enum Outcome {
 
 struct Shared {
     state: Mutex<JobState>,
-    limiter: Limiter,
+    limiter: Arc<Limiter>,
     failed: Mutex<Option<String>>,
     attempts: Mutex<Vec<u32>>,
     last_detail: Mutex<Option<Instant>>,
@@ -364,7 +442,10 @@ pub async fn download(
     }
 
     let shared = Arc::new(Shared {
-        limiter: Limiter::new(limits.max_speed),
+        limiter: limits
+            .limiter
+            .clone()
+            .unwrap_or_else(|| Arc::new(Limiter::new(limits.max_speed))),
         attempts: Mutex::new(vec![0; st.segments.len()]),
         state: Mutex::new(st.clone()),
         failed: Mutex::new(None),
@@ -732,6 +813,19 @@ mod tests {
     use crate::state::Segment;
 
     #[test]
+    fn category_of_maps_common_extensions() {
+        assert_eq!(category_of("a.pdf"), "documents");
+        assert_eq!(category_of("A.PDF"), "documents");
+        assert_eq!(category_of("x.mp4"), "videos");
+        assert_eq!(category_of("x.mp3"), "audio");
+        assert_eq!(category_of("x.png"), "images");
+        assert_eq!(category_of("x.zip"), "archives");
+        assert_eq!(category_of("x.apk"), "apps");
+        assert_eq!(category_of("x.torrent"), "others");
+        assert_eq!(category_of("noext"), "others");
+    }
+
+    #[test]
     fn sanitize_ext_never_carries_path_chars() {
         assert_eq!(sanitize_ext("mp4"), "mp4");
         assert_eq!(sanitize_ext("MP4"), "mp4");
@@ -745,6 +839,18 @@ mod tests {
 
     fn seg(start: u64, end: u64, done: u64) -> Segment {
         Segment { start, end, done }
+    }
+
+    #[tokio::test]
+    async fn limiter_paces_and_can_be_lifted_at_runtime() {
+        let l = Limiter::new(Some(200_000));
+        let t = Instant::now();
+        l.acquire(400_000).await; // budget starts at one second worth
+        assert!(t.elapsed() >= Duration::from_millis(900));
+        l.set_max(None);
+        let t = Instant::now();
+        l.acquire(10_000_000).await;
+        assert!(t.elapsed() < Duration::from_millis(100));
     }
 
     #[test]

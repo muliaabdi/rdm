@@ -5,5 +5,5 @@ pub mod events;
 pub mod hls;
 pub mod state;
 
-pub use engine::{download, job_from_url, Job, Limits};
+pub use engine::{category_of, download, job_from_url, Job, Limiter, Limits};
 pub use events::Progress;

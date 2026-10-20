@@ -81,6 +81,8 @@ struct App {
     // latest in-flight progress; the DB row only gets `done` on terminal or
     // pause, so snapshots (`list`) read live values from here instead
     live: Mutex<HashMap<u64, (i64, Option<i64>)>>,
+    // process-wide token bucket so the speed cap covers every active job
+    limiter: std::sync::Arc<rdm_core::Limiter>,
 }
 
 impl App {
@@ -133,6 +135,7 @@ impl App {
             next_id: AtomicU64::new(next),
             ctl: Mutex::new(HashMap::new()),
             live: Mutex::new(HashMap::new()),
+            limiter: std::sync::Arc::new(rdm_core::Limiter::new(speed_limit_bytes())),
         })
     }
 
@@ -257,6 +260,7 @@ pub async fn run_at(path: PathBuf, db_path: PathBuf) -> Result<()> {
     }
     tracing::info!("listening at {}", path.display());
     let app = Arc::new(App::open(db_path)?);
+    tokio::spawn(ytdlp_updater());
     // a previous daemon may have died mid-job: nothing is running now, and a
     // stale `running`/`resolving` row would look hung forever
     app.db_exec(|db| {
@@ -290,6 +294,111 @@ fn settings_json() -> serde_json::Value {
     });
     b.and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_else(|| json!({}))
+}
+
+/// `speed_limit` setting in KiB/s (0/absent = unlimited), as bytes/s.
+fn speed_limit_bytes() -> Option<u64> {
+    match settings_json()["speed_limit"].as_u64().unwrap_or(0) {
+        0 => None,
+        k => Some(k.saturating_mul(1024)),
+    }
+}
+
+fn expand_path(p: &str) -> PathBuf {
+    let p = p.trim();
+    let home = || {
+        std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."))
+    };
+    if let Some(rest) = p.strip_prefix("~/") {
+        return home().join(rest);
+    }
+    if let Some(rest) = p.strip_prefix("$HOME/") {
+        return home().join(rest);
+    }
+    if p == "~" || p == "$HOME" {
+        return home();
+    }
+    PathBuf::from(p)
+}
+
+/// Base folder: the `dir` setting, else ~/Downloads.
+fn base_dir(settings: &serde_json::Value) -> PathBuf {
+    settings["dir"]
+        .as_str()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(expand_path)
+        .unwrap_or_else(default_out_dir)
+}
+
+/// Destination folder for a job: explicit `offer.dir` wins, then the
+/// per-category folder from settings, then the base folder.
+fn dir_for(offer_dir: Option<&str>, filename: &str) -> PathBuf {
+    if let Some(d) = offer_dir.map(str::trim).filter(|d| !d.is_empty()) {
+        return expand_path(d);
+    }
+    let s = settings_json();
+    let base = base_dir(&s);
+    let cat = rdm_core::category_of(filename);
+    let Some(p) = s["categories"][cat]
+        .as_str()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    else {
+        return base;
+    };
+    let p = expand_path(p);
+    if p.is_absolute() {
+        p
+    } else {
+        base.join(p)
+    }
+}
+
+/// Keep yt-dlp fresh: extractors go stale within weeks. Runs `yt-dlp -U` in
+/// the background (once a day, first check shortly after start). System
+/// packages are not writable, so `-U` just logs a hint there.
+async fn ytdlp_updater() {
+    tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+    loop {
+        if settings_json()["ytdlp_update"].as_bool().unwrap_or(true) {
+            update_ytdlp().await;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+    }
+}
+
+async fn update_ytdlp() {
+    let bin = ytdlp::yt_dlp_bin();
+    let version = |bin: std::path::PathBuf| async move {
+        tokio::process::Command::new(bin)
+            .arg("--version")
+            .output()
+            .await
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default()
+    };
+    let before = version(bin.clone()).await;
+    match tokio::process::Command::new(&bin).arg("-U").output().await {
+        Ok(o) if o.status.success() => {
+            let after = version(bin).await;
+            if after.is_empty() || after == before {
+                tracing::info!("yt-dlp {before}: already up to date");
+            } else {
+                tracing::info!("yt-dlp updated: {before} -> {after}");
+            }
+        }
+        Ok(o) => {
+            let msg = String::from_utf8_lossy(&o.stderr);
+            let first = msg.trim().lines().next().unwrap_or("no output");
+            tracing::info!("yt-dlp {before}: self-update unavailable ({first})");
+        }
+        Err(e) => tracing::warn!("yt-dlp self-update failed: {e}"),
+    }
 }
 
 async fn handle_client(app: Arc<App>, stream: UnixStream) {
@@ -366,6 +475,12 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
                 serde_json::to_vec_pretty(&val).context("encode settings")?,
             )
             .context("write settings")?;
+            // apply the new speed cap to the live bucket immediately
+            let kbps = val["speed_limit"].as_u64().unwrap_or(0);
+            app.limiter.set_max(match kbps {
+                0 => None,
+                k => Some(k.saturating_mul(1024)),
+            });
             let _ = app
                 .events
                 .send(json!({"t":"settings","settings":val}).to_string());
@@ -620,15 +735,19 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     let runner = if offer.page.unwrap_or(false) {
+        // final output folder is resolved once yt-dlp reports the title
         let dir = offer
             .dir
-            .clone()
-            .map(PathBuf::from)
-            .unwrap_or_else(default_out_dir);
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(expand_path)
+            .unwrap_or_else(|| base_dir(&settings_json()));
         std::fs::create_dir_all(&dir).ok();
         RunnerSpec::Page(offer.clone(), false)
     } else {
-        let (job, out_path, filename) = build_job(&offer)?;
+        let (mut job, out_path, filename) = build_job(&offer)?;
+        job.limits.limiter = Some(app.limiter.clone());
         let confirming = offer.confirm.unwrap_or(false);
         let status = if confirming { "confirming" } else { "running" };
         app.db_exec({
@@ -658,9 +777,11 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
         let url = o.url.clone();
         let dir = o
             .dir
-            .clone()
-            .map(PathBuf::from)
-            .unwrap_or_else(default_out_dir);
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(expand_path)
+            .unwrap_or_else(|| base_dir(&settings_json()));
         let fname = format!(
             "{} — {}",
             host_of(&o.url),
@@ -718,11 +839,16 @@ fn offer_json(o: &Offer) -> serde_json::Value {
 }
 
 fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
-    let dir = offer
-        .dir
+    // resolve the name first: the category folder depends on the extension
+    let clean = offer
+        .filename
+        .as_deref()
+        .map(rdm_core::engine::sanitize_filename)
+        .filter(|c| c != "download");
+    let hint = clean
         .clone()
-        .map(PathBuf::from)
-        .unwrap_or_else(default_out_dir);
+        .unwrap_or_else(|| rdm_core::engine::sanitize_filename(&offer.url));
+    let dir = dir_for(offer.dir.as_deref(), &hint);
     std::fs::create_dir_all(&dir).ok();
 
     let mut job: Job = job_from_url(
@@ -740,11 +866,8 @@ fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
     {
         job.out.set_extension("ts");
     }
-    if let Some(name) = offer.filename.as_deref() {
-        let clean = rdm_core::engine::sanitize_filename(name);
-        if clean != "download" {
-            job.out = dir.join(clean);
-        }
+    if let Some(clean) = clean {
+        job.out = dir.join(clean);
     }
     let mut hdrs = HeaderMap::new();
     let put = |h: &mut HeaderMap, n: HeaderName, v: &str| {
@@ -912,6 +1035,7 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
         RunnerSpec::Page(offer, restart)
     } else {
         let (mut job, _, _) = build_job(&offer)?;
+        job.limits.limiter = Some(app.limiter.clone());
         job.fresh = restart;
         RunnerSpec::Direct(job)
     };
@@ -1062,7 +1186,13 @@ async fn run_media(
     }
 }
 
-fn job_for(url: &str, out: PathBuf, offer: &Offer, segments: u64) -> Job {
+fn job_for(
+    url: &str,
+    out: PathBuf,
+    offer: &Offer,
+    segments: u64,
+    limiter: std::sync::Arc<rdm_core::Limiter>,
+) -> Job {
     let mut job = job_from_url(
         url,
         Some(
@@ -1072,7 +1202,10 @@ fn job_for(url: &str, out: PathBuf, offer: &Offer, segments: u64) -> Job {
                 .unwrap_or_default(),
         ),
         segments,
-        Limits::default(),
+        Limits {
+            limiter: Some(limiter),
+            ..Limits::default()
+        },
     );
     job.out = out;
     let mut hdrs = HeaderMap::new();
@@ -1174,13 +1307,15 @@ async fn run_page(
         offer.height.unwrap_or(1080),
         offer.audio_only.unwrap_or(false),
     );
-    let dir = offer
-        .dir
-        .clone()
-        .map(PathBuf::from)
-        .unwrap_or_else(default_out_dir);
     let base = rdm_core::engine::sanitize_filename(&info.title);
     let vext = rdm_core::engine::sanitize_ext(&v.ext);
+    let final_name = if a.is_some() {
+        format!("{base}.mp4")
+    } else {
+        format!("{base}.{vext}")
+    };
+    let dir = dir_for(offer.dir.as_deref(), &final_name);
+    std::fs::create_dir_all(&dir).ok();
     let vpath = dir.join(format!("{base}.v.{vext}"));
     let apath = a.as_ref().map(|af| {
         dir.join(format!(
@@ -1188,11 +1323,7 @@ async fn run_page(
             rdm_core::engine::sanitize_ext(&af.ext)
         ))
     });
-    let final_path = if a.is_some() {
-        dir.join(format!("{base}.mp4"))
-    } else {
-        dir.join(format!("{base}.{vext}"))
-    };
+    let final_path = dir.join(final_name);
     {
         let fname = final_path
             .file_name()
@@ -1218,7 +1349,13 @@ async fn run_page(
 
     let mut ga = PhaseStat::default();
 
-    let mut vjob = job_for(&v.url, vpath.clone(), &offer, offer.segments.unwrap_or(8));
+    let mut vjob = job_for(
+        &v.url,
+        vpath.clone(),
+        &offer,
+        offer.segments.unwrap_or(8),
+        app.limiter.clone(),
+    );
     vjob.fresh = restart;
     let gv: PhaseStat = match run_media(&app, id, vjob, &mut kill_rx, 0, None).await {
         Ok(st) => st,
@@ -1231,7 +1368,13 @@ async fn run_page(
 
     // phase 2: audio
     if let (Some(af), Some(ap)) = (a.as_ref(), apath.as_ref()) {
-        let mut ajob = job_for(&af.url, ap.clone(), &offer, offer.segments.unwrap_or(4));
+        let mut ajob = job_for(
+            &af.url,
+            ap.clone(),
+            &offer,
+            offer.segments.unwrap_or(4),
+            app.limiter.clone(),
+        );
         ajob.fresh = restart;
         match run_media(&app, id, ajob, &mut kill_rx, gv.done, gv.size).await {
             Ok(st) => ga = st,

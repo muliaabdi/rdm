@@ -452,6 +452,11 @@ async fn run_vod(
     let (tx, mut rx) = mpsc::channel::<Msg>(workers * 2);
     let next = Arc::new(AtomicU64::new(0));
     let key_cache = Arc::new(Mutex::new(HashMap::<String, [u8; 16]>::new()));
+    let limiter = job
+        .limits
+        .limiter
+        .clone()
+        .unwrap_or_else(|| Arc::new(crate::engine::Limiter::new(job.limits.max_speed)));
 
     for _ in 0..workers {
         let (tx, client, next, have, key_cache, total) = (
@@ -462,6 +467,7 @@ async fn run_vod(
             key_cache.clone(),
             total.clone(),
         );
+        let limiter = limiter.clone();
         let (items, headers, retries, kill) = (
             Arc::new(plan.items.clone()),
             job.headers.clone(),
@@ -507,6 +513,7 @@ async fn run_vod(
                     return;
                 };
                 total.fetch_add(b.len() as u64, Ordering::Relaxed);
+                limiter.acquire(b.len()).await;
                 if tx.send(Msg::Item(i, b)).await.is_err() {
                     return;
                 }
@@ -630,6 +637,11 @@ async fn run_live(
 ) -> Result<()> {
     let mut written: HashSet<String> = st.written.unwrap_or_default().into_iter().collect();
     let key_cache = Arc::new(Mutex::new(HashMap::<String, [u8; 16]>::new()));
+    let limiter = job
+        .limits
+        .limiter
+        .clone()
+        .unwrap_or_else(|| Arc::new(crate::engine::Limiter::new(job.limits.max_speed)));
     let mut poll_n: usize = 0;
 
     loop {
@@ -685,6 +697,7 @@ async fn run_live(
         for _ in 0..pool {
             let (tx, client, next, key_cache) =
                 (tx.clone(), client.clone(), next.clone(), key_cache.clone());
+            let limiter = limiter.clone();
             let (cands, headers) = (Arc::new(candidates.clone()), job.headers.clone());
             tokio::spawn(async move {
                 loop {
@@ -694,6 +707,7 @@ async fn run_live(
                     }
                     match fetch_item(&client, &headers, &key_cache, &cands[i as usize]).await {
                         Ok(b) => {
+                            limiter.acquire(b.len()).await;
                             if tx.send(Msg::Item(i, b)).await.is_err() {
                                 return;
                             }

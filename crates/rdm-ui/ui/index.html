@@ -239,6 +239,9 @@
   #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: #3c4046; cursor: pointer; }
   #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
   #dlg .ftypes.all .fchk:nth-child(n+2) { opacity: .4; }
+  #dlg .cats { flex: 1; display: grid; grid-template-columns: 84px 1fr; gap: 6px 8px; align-items: center; }
+  #dlg .cats span { color: #3c4046; font-size: 12px; }
+  #dlg .cats input { margin: 0; min-width: 0; }
 
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -364,6 +367,9 @@ const I18N = {
     dlg_quality_title: "Choose quality", opt_audio: "Audio only",
     dlg_settings_title: "Settings", fld_dir: "Folder", fld_segments: "Segments",
     ph_dir: "default: ~/Downloads", fld_lang: "Language", btn_save: "Save",
+    fld_speed: "Speed limit", ph_speed: "0 = unlimited",
+    fld_cats: "Category folders", ph_cats: "empty = Folder",
+    fld_ytdlp: "Update yt-dlp automatically",
     err_url_http: "URL must be http(s)",
     err_not_connected: "not connected to the daemon",
     err_gone_file: "File no longer exists on disk", err_gone_folder: "Folder no longer exists",
@@ -408,6 +414,9 @@ const I18N = {
     dlg_quality_title: "Pilih kualitas", opt_audio: "Audio saja",
     dlg_settings_title: "Pengaturan", fld_dir: "Folder", fld_segments: "Segmen",
     ph_dir: "bawaan: ~/Downloads", fld_lang: "Bahasa", btn_save: "Simpan",
+    fld_speed: "Batas kecepatan", ph_speed: "0 = tanpa batas",
+    fld_cats: "Folder kategori", ph_cats: "kosong = Folder",
+    fld_ytdlp: "Perbarui yt-dlp otomatis",
     err_url_http: "URL harus http(s)",
     err_not_connected: "belum terhubung ke daemon",
     err_gone_file: "Berkas sudah tidak ada di disk", err_gone_folder: "Folder sudah tidak ada",
@@ -1185,6 +1194,12 @@ const FTYPES = [
   ["others", "ft_others", "torrent bin dat m3u8 mpd nfo srt"],
 ];
 const EXT2CAT = new Map(FTYPES.flatMap(([id, , str]) => str.split(" ").map((x) => [x, id])));
+// category keys must match rdm_core::category_of
+const CATS = [
+  ["images", "ft_images"], ["videos", "ft_videos"], ["audio", "ft_audio"],
+  ["documents", "ft_docs"], ["apps", "ft_apps"], ["archives", "ft_arch"],
+  ["others", "ft_others"],
+];
 
 $("b-options").onclick = async () => {
   const s = await invoke("get_settings");
@@ -1194,10 +1209,14 @@ $("b-options").onclick = async () => {
   // show the effective allow-list: known-category extensions too, otherwise a
   // lone "pdf" would vanish (its category needs every doc ext to check)
   const extras = allOn ? "" : list.join(", ");
+  const cats = s.categories || {};
   openModal(`<h3>${t("dlg_settings_title")}</h3>
     <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
     <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
     <div class="fld"><label>${t("fld_parallel")}</label><input id="o-par" class="narrow" type="number" min="1" max="16" value="${s.max_parallel || 3}"></div>
+    <div class="fld"><label>${t("fld_speed")}</label><input id="o-speed" class="narrow" type="number" min="0" step="64" value="${s.speed_limit || 0}"><span class="dim">KiB/s</span></div>
+    <div class="fld"><label>${t("fld_cats")}</label>
+      <div class="cats">${CATS.map(([id, key]) => `<span>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t("ph_cats"))}" spellcheck="false" autocomplete="off">`).join("")}</div></div>
     <div class="fld"><label>${t("fld_ftype")}</label>
       <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
         <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
@@ -1209,6 +1228,7 @@ $("b-options").onclick = async () => {
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-auto" type="checkbox"${auto ? " checked" : ""}><span>${t("fld_autostart")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}><span>${t("fld_notify")}</span></label></div>
+    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-ytdlp" type="checkbox"${s.ytdlp_update !== false ? " checked" : ""}><span>${t("fld_ytdlp")}</span></label></div>
     <div class="btns"><button id="o-cancel">${t("btn_cancel")}</button><button id="o-ok" class="pri">${t("btn_save")}</button></div>`);
   $("o-cancel").onclick = closeModal;
   $("ft-all").onchange = () => {
@@ -1234,9 +1254,17 @@ $("b-options").onclick = async () => {
     ints = [...new Set(ints)];
     if (!$("ft-all").checked && ints.length === 0) toast(t("ft_empty_all"));
     const auto = $("o-auto").checked;
+    const catdirs = {};
+    for (const [id] of CATS) {
+      const v = $("c-" + id).value.trim();
+      if (v) catdirs[id] = v;
+    }
     await invoke("set_settings", {
-      v: { dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8,
+      // keep keys this dialog does not edit (unknown/future settings)
+      v: { ...s, dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8,
            max_parallel: Math.min(16, Math.max(1, Number($("o-par").value) || 3)),
+           speed_limit: Math.max(0, Number($("o-speed").value) || 0),
+           categories: catdirs, ytdlp_update: $("o-ytdlp").checked,
            lang: next, intercept_ext: ints, autostart: auto, notify: $("o-notify").checked },
     });
     await invoke("set_autostart", { enabled: auto }).catch((e) => toast(trErr(e)));

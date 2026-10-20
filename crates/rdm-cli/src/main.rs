@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
         retries,
         min_segment_size: rdm_core::Limits::default().min_segment_size,
         sha256,
+        ..Limits::default()
     };
     let job: Job = job_from_url(&url, out, segments, limits);
 

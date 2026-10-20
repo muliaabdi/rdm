@@ -13,6 +13,12 @@ unduhan (takeover) + deteksi video di halaman.
   resume lintas URL (Range/ETag), dan pemilihan jumlah segmen per job.
 - **Antrean persisten** (SQLite) + batas unduhan paralel; pause/resume instan;
   reconnect otomatis; cleanup berkas sebagian saat hapus.
+- **Batas kecepatan global** (KiB/s, 0 = tanpa batas) yang berlaku untuk semua
+  unduhan aktif sekaligus, termasuk segmen HLS dan video yt-dlp; bisa diubah
+  saat unduhan berjalan.
+- **Folder kategori**: tiap kategori (images/videos/audio/documents/apps/
+  archives/others) bisa punya folder sendiri; unduhan otomatis diarahkan
+  berdasarkan ekstensi (path relatif = terhadap folder utama).
 - **Ekstensi Chrome/Brave/Edge/Chromium (MV3)**:
   - takeover unduhan native browser (cancel + dialog konfirmasi RDM),
   - filter tipe file per ekstensi (kategori + daftar kustom),
@@ -22,7 +28,9 @@ unduhan (takeover) + deteksi video di halaman.
   - fallback untuk URL tanpa ekstensi (mis. Google Drive): keputusan ditunda
     sampai nama file asli diketahui.
 - **Situs video** via `yt-dlp` (1.700+ extractor): pilih resolusi/audio,
-  tangga retry otomatis (cookie/UA → tanpa cookie → client web).
+  tangga retry otomatis (cookie/UA → tanpa cookie → client web);
+  self-update otomatis harian di latar (`yt-dlp -U`, bisa dimatikan di
+  Settings; paket sistem hanya mencatat versi).
 - **HLS** (`m3u8`): AES-128 (IV eksplisit / media-sequence), fMP4 multi-init,
   live polling; `.m3u8` → `.ts`.
 - **UI desktop**: daftar + kategori + grafik per-segmen, detail dialog,
@@ -65,8 +73,9 @@ Tanpa installer: `cargo build --release` lalu jalankan `rdm-daemon` dan
   dikonfirmasi via dialog); atau klik kanan → "Download with RDM".
 - Video: pill di atas player, atau Add URL → Detect.
 - CLI: `rdm add <url>`, `rdm list`, `rdm pause <id>`, `rdm resume <id>`.
-- Settings (UI): folder simpan, segmen, unduhan paralel, tipe file yang
-  di-takeover, bahasa, notifikasi, autostart.
+- Settings (UI): folder simpan, folder kategori, segmen, unduhan paralel,
+  batas kecepatan, tipe file yang di-takeover, bahasa, notifikasi, autostart,
+  update yt-dlp otomatis.
 
 ## Batasan
 
