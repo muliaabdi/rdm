@@ -1191,7 +1191,9 @@ $("b-options").onclick = async () => {
   const auto = await invoke("get_autostart").catch(() => !!s.autostart);
   const list = s.intercept_ext || [];
   const allOn = list.length === 0;
-  const extras = list.filter((x) => !EXT2CAT.has(x)).join(", ");
+  // show the effective allow-list: known-category extensions too, otherwise a
+  // lone "pdf" would vanish (its category needs every doc ext to check)
+  const extras = allOn ? "" : list.join(", ");
   openModal(`<h3>${t("dlg_settings_title")}</h3>
     <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
     <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
@@ -1213,6 +1215,12 @@ $("b-options").onclick = async () => {
     const on = $("ft-all").checked;
     $("ft-box").classList.toggle("all", on);
     for (const [id] of FTYPES) $("ft-" + id).disabled = on;
+  };
+  $("o-int").oninput = () => {
+    if ($("o-int").value.trim() && $("ft-all").checked) {
+      $("ft-all").checked = false;
+      $("ft-all").onchange();
+    }
   };
   $("o-ok").onclick = async () => {
     const next = $("o-lang").value;
