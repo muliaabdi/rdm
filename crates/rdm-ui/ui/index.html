@@ -188,12 +188,21 @@
   #modal.open { opacity: 1; visibility: visible; }
   #dlg {
     width: 400px; max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 40px);
+    display: flex; flex-direction: column;
     background: var(--panel-hi); border: 1px solid var(--line2); border-radius: 12px;
     box-shadow: 0 14px 44px rgba(24,22,14,.22);
     padding: 16px 18px; transform: translateY(8px) scale(.98); transition: transform .14s ease;
   }
   #modal.open #dlg { transform: none; }
-  #dlg h3 { margin: 0 0 12px; font-size: 13px; }
+  #dlg h3 { margin: 0 0 12px; font-size: 13px; flex: none; }
+  /* tall dialogs scroll their fields; the action row stays pinned */
+  #dlg .dlgbody { overflow-y: auto; min-height: 0; flex: 1; margin: 0 -6px; padding: 0 6px; }
+  #dlg .sec {
+    flex: none; margin: 14px 0 9px; padding-bottom: 4px; border-bottom: 1px solid var(--line);
+    font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+  }
+  #dlg .dlgbody .sec:first-child { margin-top: 0; }
   #dlg input, #dlg select {
     width: 100%; padding: 7px 10px; margin-bottom: 11px;
     border: 1px solid var(--line2); border-radius: 8px; font: inherit; background: var(--input-bg); color: var(--txt);
@@ -214,6 +223,8 @@
   #dlg button.pri:hover { background: #3d74c6; }
   #dlg button.pri:active { background: #2e5da3; }
   .mhint { font-size: 11px; color: var(--dim); margin: -4px 0 11px; min-height: 14px; }
+  #dlg .btns { padding-top: 12px; flex: none; }
+  #dlg.hasbody .btns { border-top: 1px solid var(--line); margin-top: 10px; }
   .empty {
     grid-column: 1 / -1; padding: 48px 20px; text-align: center; color: var(--dim2);
   }
@@ -252,18 +263,21 @@
   }
   #toast.on { opacity: 1; transform: translateX(-50%); }
   #dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 11px; }
-  #dlg .fld label { width: 96px; color: var(--txt2); }
+  #dlg .fld label { width: 112px; flex: none; color: var(--txt2); line-height: 1.25; }
+  /* tall sub-blocks (folder grid, type grid): label aligns with first row */
+  #dlg .fld:has(> .cats) label, #dlg .fld:has(> .ftypes) label { align-self: start; padding-top: 8px; }
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
   #dlg .fld input.narrow { flex: 0 0 108px; }
   #dlg .fld input.chk { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #2b6cff; }
   /* checkbox + inline caption inside a field row (e.g. delete confirmation) */
   #dlg .fld > label.fchk { width: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: 400; color: var(--txt2); cursor: pointer; }
   #dlg .fld > label.fchk input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #2b6cff; }
-  #dlg .ftypes { flex: 1; display: flex; flex-wrap: wrap; gap: 7px 4px; }
+  #dlg .ftypes { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; align-items: center; }
+  #dlg .ftypes .fchk:first-child { grid-column: 1 / -1; padding-bottom: 5px; border-bottom: 1px dashed var(--line); }
   #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: var(--txt2); cursor: pointer; }
   #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
   #dlg .ftypes.all .fchk:nth-child(n+2) { opacity: .4; }
-  #dlg .cats { flex: 1; display: grid; grid-template-columns: 84px 1fr; gap: 6px 8px; align-items: center; }
+  #dlg .cats { flex: 1; display: grid; grid-template-columns: 96px 1fr; gap: 6px 8px; align-items: center; }
   #dlg .cats span { color: var(--txt2); font-size: 12px; }
   #dlg .cats input { margin: 0; min-width: 0; }
 
@@ -423,6 +437,7 @@ const I18N = {
     dlg_settings_title: "Settings", fld_dir: "Folder", fld_segments: "Segments",
     ph_dir: "default: ~/Downloads", fld_lang: "Language", fld_theme: "Theme",
     opt_system: "System", opt_light: "Light", opt_dark: "Dark", btn_save: "Save",
+    sec_downloads: "Downloads", sec_takeover: "Browser takeover", sec_interface: "Interface",
     fld_speed: "Speed limit", ph_speed: "0 = unlimited",
     fld_cats: "Category folders", ph_cats: "empty = Folder",
     fld_ytdlp: "Update yt-dlp automatically",
@@ -471,6 +486,7 @@ const I18N = {
     dlg_settings_title: "Pengaturan", fld_dir: "Folder", fld_segments: "Segmen",
     ph_dir: "bawaan: ~/Downloads", fld_lang: "Bahasa", fld_theme: "Tema",
     opt_system: "Sistem", opt_light: "Terang", opt_dark: "Gelap", btn_save: "Simpan",
+    sec_downloads: "Unduhan", sec_takeover: "Pengambilalihan browser", sec_interface: "Antarmuka",
     fld_speed: "Batas kecepatan", ph_speed: "0 = tanpa batas",
     fld_cats: "Folder kategori", ph_cats: "kosong = Folder",
     fld_ytdlp: "Perbarui yt-dlp otomatis",
@@ -1163,7 +1179,7 @@ setInterval(() => {
 let lastFocus = null;
 function openModal(html) {
   lastFocus = document.activeElement;
-  $("dlg").classList.remove("wide");
+  $("dlg").classList.remove("wide", "hasbody");
   $("dlg").innerHTML = html;
   $("modal").classList.add("open");
   const f = $("dlg").querySelector("input, select, button:not(.pri)");
@@ -1290,18 +1306,22 @@ $("b-options").onclick = async () => {
   const extras = allOn ? "" : list.join(", ");
   const cats = s.categories || {};
   openModal(`<h3>${t("dlg_settings_title")}</h3>
+    <div class="dlgbody">
+    <div class="sec">${t("sec_downloads")}</div>
     <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
+    <div class="fld"><label>${t("fld_cats")}</label>
+      <div class="cats">${FOLDER_CATS.map(([id, key]) => `<span>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t("ph_cats"))}" spellcheck="false" autocomplete="off">`).join("")}</div></div>
     <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
     <div class="fld"><label>${t("fld_parallel")}</label><input id="o-par" class="narrow" type="number" min="1" max="16" value="${s.max_parallel || 3}"></div>
     <div class="fld"><label>${t("fld_speed")}</label><input id="o-speed" class="narrow" type="number" min="0" step="64" value="${s.speed_limit || 0}"><span class="dim">KiB/s</span></div>
-    <div class="fld"><label>${t("fld_cats")}</label>
-      <div class="cats">${FOLDER_CATS.map(([id, key]) => `<span>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t("ph_cats"))}" spellcheck="false" autocomplete="off">`).join("")}</div></div>
+    <div class="sec">${t("sec_takeover")}</div>
     <div class="fld"><label>${t("fld_ftype")}</label>
       <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
         <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
         ${FTYPES.map(([id, key, str]) => `<label class="fchk"><input type="checkbox" id="ft-${id}"${str.split(" ").every((x) => list.includes(x)) ? " checked" : ""}${allOn ? " disabled" : ""}><span>${t(key)}</span></label>`).join("")}
       </div></div>
     <div class="fld"><label>${t("fld_extra")}</label><input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc(extras)}" spellcheck="false" autocomplete="off"></div>
+    <div class="sec">${t("sec_interface")}</div>
     <div class="fld"><label>${t("fld_lang")}</label><select id="o-lang">
       <option value="en"${lang === "en" ? " selected" : ""}>English</option>
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
@@ -1312,7 +1332,9 @@ $("b-options").onclick = async () => {
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-auto" type="checkbox"${auto ? " checked" : ""}><span>${t("fld_autostart")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}><span>${t("fld_notify")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-ytdlp" type="checkbox"${s.ytdlp_update !== false ? " checked" : ""}><span>${t("fld_ytdlp")}</span></label></div>
+    </div>
     <div class="btns"><button id="o-cancel">${t("btn_cancel")}</button><button id="o-ok" class="pri">${t("btn_save")}</button></div>`);
+  $("dlg").classList.add("hasbody");
   $("o-cancel").onclick = closeModal;
   $("ft-all").onchange = () => {
     const on = $("ft-all").checked;
