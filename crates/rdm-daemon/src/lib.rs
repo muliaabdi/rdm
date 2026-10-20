@@ -1862,6 +1862,7 @@ fn list_jobs(app: &App) -> Result<serde_json::Value> {
         // a finished job whose file/folder is gone (moved or deleted outside
         // RDM) gets a badge instead of silently claiming "Done"
         let missing = status == "completed" && !std::path::Path::new(&out_path).exists();
+        let dir = std::path::Path::new(&out_path).is_dir();
         Ok(json!({
             "id": r.get::<_, i64>(0)?,
             "url": r.get::<_, String>(1)?,
@@ -1872,6 +1873,7 @@ fn list_jobs(app: &App) -> Result<serde_json::Value> {
             "status": status,
             "error": r.get::<_, Option<String>>(7)?,
             "missing": missing,
+            "dir": dir,
         }))
     })?;
     let mut out = Vec::new();
