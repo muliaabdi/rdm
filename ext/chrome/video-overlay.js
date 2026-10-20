@@ -9,6 +9,7 @@
   let hideTimer = null;
   let current = null;
   let pageModeNow = false;
+  let pageUrl = null;
 
   function urlOf(el) {
     const u = (el && (el.currentSrc || el.src)) || "";
@@ -21,6 +22,30 @@
     } catch {
       return "";
     }
+  }
+
+  // For blob:/MSE media we offer "the page" — but on feed sites (x.com,
+  // twitter.com) the hovered video belongs to one post, not the timeline.
+  // Walk up from the media element and prefer that post's permalink.
+  function contextualPageUrl(el) {
+    const abs = (h) => {
+      try {
+        return new URL(h, location.origin).href.split("?")[0];
+      } catch {
+        return "";
+      }
+    };
+    let n = el;
+    for (let i = 0; n && i < 12; i++, n = n.parentElement) {
+      if (n.tagName === "A") {
+        const h = (n.getAttribute("href") || "").split("?")[0];
+        if (/^\/?[^/]*\/status\/\d+/.test(h)) return abs(h) || location.href;
+      } else if (n.tagName === "ARTICLE" || (n.matches && n.matches('[data-testid="tweet"]'))) {
+        const a = n.querySelector('a[href*="/status/"]');
+        if (a) return abs(a.getAttribute("href") || "") || location.href;
+      }
+    }
+    return location.href;
   }
 
   function destroy() {
@@ -47,6 +72,7 @@
   function show(el, url, isPage) {
     clearTimeout(hideTimer);
     pageModeNow = !!isPage;
+    pageUrl = isPage ? contextualPageUrl(el) : null;
     if (!btn) {
       btn = document.createElement("div");
       btn.id = "__rdm_video_tip";
@@ -94,7 +120,7 @@
         const b = btn.shadowRoot.querySelector("#__rdm_lbl");
         if (pageModeNow) {
           b.textContent = "…";
-          chrome.runtime.sendMessage({ t: "page-offer", url: location.href }, () => {
+          chrome.runtime.sendMessage({ t: "page-offer", url: pageUrl || location.href }, () => {
             const err = chrome.runtime.lastError;
             b.textContent = err ? "ERR" : "✓";
           });
@@ -117,7 +143,7 @@
         if (!pageModeNow) return;
         const m = btn.shadowRoot.querySelector("#__rdm_mp3");
         m.textContent = "…";
-        chrome.runtime.sendMessage({ t: "page-offer", url: location.href, audio: true }, () => {
+        chrome.runtime.sendMessage({ t: "page-offer", url: pageUrl || location.href, audio: true }, () => {
           m.textContent = chrome.runtime.lastError ? "ERR" : "✓";
         });
         clearTimeout(hideTimer);
@@ -159,7 +185,7 @@
     if (!el || el.nodeType !== 1 || !el.closest) return null;
     const direct = el.closest("video, audio");
     if (direct) return direct;
-    const host = el.closest('[class*="player" i],[id*="player" i],[class*="video" i],[id*="video" i],[class*="jw" i],[data-player]');
+    const host = el.closest('[class*="player" i],[id*="player" i],[class*="video" i],[id*="video" i],[class*="jw" i],[data-player],[data-testid*="video" i],[data-testid*="player" i]');
     if (host) return host.querySelector("video, audio");
     return null;
   }
