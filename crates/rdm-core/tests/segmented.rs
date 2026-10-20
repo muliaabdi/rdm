@@ -39,21 +39,34 @@ async fn serve() -> String {
 }
 
 async fn handler(State(data): State<Arc<Vec<u8>>>, headers: HeaderMap) -> Response {
-    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let mut resp = Response::builder().header(header::ETAG, "\"v1\"");
     if let Some(r) = range {
         let spec = r.trim_start_matches("bytes=");
         let (a, b) = spec.split_once('-').unwrap();
         let start: usize = a.parse().unwrap();
-        let end = if b.is_empty() { data.len() - 1 } else { b.parse().unwrap() };
+        let end = if b.is_empty() {
+            data.len() - 1
+        } else {
+            b.parse().unwrap()
+        };
         if start >= data.len() {
-            return Response::builder().status(StatusCode::RANGE_NOT_SATISFIABLE).body(Body::empty()).unwrap();
+            return Response::builder()
+                .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                .body(Body::empty())
+                .unwrap();
         }
         let end = end.min(data.len() - 1);
         let slice = data[start..=end].to_vec();
         resp = resp
             .status(StatusCode::PARTIAL_CONTENT)
-            .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{}", data.len()))
+            .header(
+                header::CONTENT_RANGE,
+                format!("bytes {start}-{end}/{}", data.len()),
+            )
             .header(header::CONTENT_LENGTH, slice.len());
         return resp.body(Body::from(slice)).unwrap();
     }
@@ -65,7 +78,10 @@ async fn handler(State(data): State<Arc<Vec<u8>>>, headers: HeaderMap) -> Respon
 }
 
 async fn serve_slow(data: Arc<Vec<u8>>) -> (String, Arc<SlowState>) {
-    let state = Arc::new(SlowState { data, hits: AtomicUsize::new(0) });
+    let state = Arc::new(SlowState {
+        data,
+        hits: AtomicUsize::new(0),
+    });
     let app = axum::Router::new()
         .route("/slow.bin", axum::routing::get(slow_handler))
         .with_state(state.clone());
@@ -84,7 +100,10 @@ struct SlowState {
 /// falls behind while the others finish, which is what dynamic splitting is for.
 async fn slow_handler(State(s): State<Arc<SlowState>>, headers: HeaderMap) -> Response {
     let data = &s.data;
-    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let Some(r) = range else {
         return Response::builder()
             .header(header::ACCEPT_RANGES, "bytes")
@@ -95,7 +114,12 @@ async fn slow_handler(State(s): State<Arc<SlowState>>, headers: HeaderMap) -> Re
     let spec = r.trim_start_matches("bytes=");
     let (a, b) = spec.split_once('-').unwrap();
     let start: usize = a.parse().unwrap();
-    let end = if b.is_empty() { data.len() - 1 } else { b.parse().unwrap() }.min(data.len() - 1);
+    let end = if b.is_empty() {
+        data.len() - 1
+    } else {
+        b.parse().unwrap()
+    }
+    .min(data.len() - 1);
     // a probe asks for one byte; only real segment reads are stalled
     if end > start && s.hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
         tokio::time::sleep(std::time::Duration::from_millis(900)).await;
@@ -104,7 +128,10 @@ async fn slow_handler(State(s): State<Arc<SlowState>>, headers: HeaderMap) -> Re
     Response::builder()
         .status(StatusCode::PARTIAL_CONTENT)
         .header(header::ETAG, "\"v1\"")
-        .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{}", data.len()))
+        .header(
+            header::CONTENT_RANGE,
+            format!("bytes {start}-{end}/{}", data.len()),
+        )
         .header(header::CONTENT_LENGTH, slice.len())
         .body(Body::from(slice))
         .unwrap()
@@ -120,7 +147,15 @@ fn tmpdir(tag: &str) -> PathBuf {
 async fn segmented_download_matches_source() {
     let url = serve().await;
     let dir = tmpdir("full");
-    let job = job_from_url(&url, Some(dir.clone()), 4, Limits { sha256: true, ..Default::default() });
+    let job = job_from_url(
+        &url,
+        Some(dir.clone()),
+        4,
+        Limits {
+            sha256: true,
+            ..Default::default()
+        },
+    );
     let (tx, mut rx) = mpsc::channel(4096);
     let (_kx, kx) = watch::channel(false);
     let handle = tokio::spawn(download(job, tx, kx));
@@ -141,7 +176,10 @@ async fn segmented_download_matches_source() {
 
     let got = std::fs::read(dir.join("file.bin")).unwrap();
     assert_eq!(got.len(), SIZE);
-    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 31 + 7) as u8));
+    assert!(got
+        .iter()
+        .enumerate()
+        .all(|(i, b)| *b == (i * 31 + 7) as u8));
 }
 
 #[tokio::test]
@@ -194,7 +232,10 @@ async fn cancel_then_resume_completes() {
         assert!(!spath.exists(), "state file removed after completion");
         let got = std::fs::read(&out).unwrap();
         assert_eq!(got.len(), SIZE);
-        assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 31 + 7) as u8));
+        assert!(got
+            .iter()
+            .enumerate()
+            .all(|(i, b)| *b == (i * 31 + 7) as u8));
     }
 }
 
@@ -213,7 +254,12 @@ async fn resume_survives_url_change() {
     };
 
     let saved = {
-        let job = job_from_url(&format!("{url}?token=1"), Some(dir.clone()), 4, Limits::default());
+        let job = job_from_url(
+            &format!("{url}?token=1"),
+            Some(dir.clone()),
+            4,
+            Limits::default(),
+        );
         let (tx, mut rx) = mpsc::channel::<Progress>(4096);
         let (kx_tx, kx_rx) = watch::channel(false);
         let handle = tokio::spawn(download(job, tx, kx_rx));
@@ -233,7 +279,12 @@ async fn resume_survives_url_change() {
     };
 
     // second pass: same content, different (re-signed) URL
-    let job = job_from_url(&format!("{url}?token=2"), Some(dir.clone()), 4, Limits::default());
+    let job = job_from_url(
+        &format!("{url}?token=2"),
+        Some(dir.clone()),
+        4,
+        Limits::default(),
+    );
     let (tx, mut rx) = mpsc::channel::<Progress>(4096);
     let (_kx, kx) = watch::channel(false);
     let handle = tokio::spawn(download(job, tx, kx));
@@ -247,11 +298,17 @@ async fn resume_survives_url_change() {
     }
     handle.await.unwrap().unwrap();
     let first = first_bytes.expect("no progress events on resume");
-    assert!(first >= saved, "resume must continue at {saved}, started at {first} instead");
+    assert!(
+        first >= saved,
+        "resume must continue at {saved}, started at {first} instead"
+    );
     assert!(!spath.exists());
     let got = std::fs::read(&out).unwrap();
     assert_eq!(got.len(), SIZE);
-    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 31 + 7) as u8));
+    assert!(got
+        .iter()
+        .enumerate()
+        .all(|(i, b)| *b == (i * 31 + 7) as u8));
 }
 
 /// Explicit restart (job.fresh) discards the part state and starts at zero.
@@ -297,11 +354,17 @@ async fn fresh_flag_restarts_from_zero() {
         }
     }
     handle.await.unwrap().unwrap();
-    assert!(first_bytes.unwrap_or(0) < 128 * 1024 + 64 * 1024, "fresh run must start near zero");
+    assert!(
+        first_bytes.unwrap_or(0) < 128 * 1024 + 64 * 1024,
+        "fresh run must start near zero"
+    );
     assert!(!spath.exists());
     let got = std::fs::read(&out).unwrap();
     assert_eq!(got.len(), SIZE);
-    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 31 + 7) as u8));
+    assert!(got
+        .iter()
+        .enumerate()
+        .all(|(i, b)| *b == (i * 31 + 7) as u8));
 }
 
 /// IDM-style dynamic splitting: while one connection stalls, the idle ones must
@@ -338,5 +401,8 @@ async fn stalled_connection_gets_split() {
 
     let got = std::fs::read(dir.join("slow.bin")).unwrap();
     assert_eq!(got.len(), BIG);
-    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 37 + 11) as u8));
+    assert!(got
+        .iter()
+        .enumerate()
+        .all(|(i, b)| *b == (i * 37 + 11) as u8));
 }

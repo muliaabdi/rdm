@@ -1,16 +1,23 @@
-//! Generic HLS (m3u8) downloader: VOD playlists, unencrypted.
+//! Generic HLS (m3u8) downloader.
 //!
-//! Segment URLs are fetched in parallel (`job.segments` workers) and written
-//! in playlist order. Resume state lives next to the output as
-//! `{out}.rdm-hls.json` with the list of finished segment indices.
+//! Supported: VOD and live playlists, AES-128 encryption (explicit IV or
+//! media-sequence derived), fMP4 init segments (`#EXT-X-MAP`) — an init is
+//! written each time the active map changes (ad-inserted / multi-period
+//! streams). `BYTERANGE` segments and `SAMPLE-AES` are rejected with a clear
+//! error.
+//!
+//! VOD resume state: `{out}.rdm-hls.json` lists finished *item* indices
+//! (items = init segments + media segments, in stream order).
+//! Live resume: state lists the URLs already written; resuming continues
+//! with whatever the (sliding) window still serves — the middle of a paused
+//! live stream cannot be recovered.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, watch};
@@ -18,10 +25,67 @@ use tokio::sync::{mpsc, watch};
 use crate::engine::Job;
 use crate::events::{Progress, SegmentInfo};
 
+use cbc::cipher::{BlockDecryptMut, KeyIvInit};
+
+type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct HlsState {
-    url: String,
-    done: Vec<u64>, // finished segment indices
+struct KeySpec {
+    uri: String,
+    iv: Option<String>, // hex, 0x-prefixed or bare
+}
+
+#[derive(Debug, Clone)]
+struct Key {
+    spec: KeySpec,
+}
+
+impl Key {
+    fn iv_for(&self, seq: u64) -> Result<[u8; 16]> {
+        if let Some(h) = &self.spec.iv {
+            let hex = h.trim_start_matches("0x");
+            let mut b = [0u8; 16];
+            if hex.len() != 32 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                bail!("bad EXT-X-KEY IV");
+            }
+            for i in 0..16 {
+                b[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).context("bad IV hex")?;
+            }
+            Ok(b)
+        } else {
+            // RFC 8216: no IV -> big-endian media sequence number
+            let mut b = [0u8; 16];
+            b[8..].copy_from_slice(&seq.to_be_bytes());
+            Ok(b)
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Item {
+    Init {
+        url: String,
+    },
+    Media {
+        url: String,
+        key: Option<Arc<Key>>,
+        seq: u64,
+    },
+}
+
+impl Item {
+    fn url(&self) -> &str {
+        match self {
+            Item::Init { url } => url,
+            Item::Media { url, .. } => url,
+        }
+    }
+}
+
+struct Plan {
+    target_dur: f64,
+    ended: bool,
+    items: Vec<Item>,
 }
 
 fn state_path(out: &std::path::Path) -> PathBuf {
@@ -42,8 +106,8 @@ pub fn looks_like_playlist(content_type: Option<&str>, url: &str) -> bool {
     path.to_ascii_lowercase().ends_with(".m3u8")
 }
 
-/// Resolve a playlist line against the playlist URL (absolute, root-relative,
-/// or plain relative).
+/// Resolve a playlist line against the playlist URL (absolute,
+/// root-relative, or plain relative).
 fn join_url(base: &str, seg: &str) -> String {
     if seg.starts_with("http://") || seg.starts_with("https://") || seg.starts_with("data:") {
         return seg.to_string();
@@ -66,46 +130,185 @@ fn join_url(base: &str, seg: &str) -> String {
     }
 }
 
-fn parse_playlist(text: &str, base: &str) -> Result<Vec<String>> {
-    let mut urls = Vec::new();
-    let mut endlist = false;
+fn attr<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    let rest = line.split(&format!("{name}=")).nth(1)?;
+    if let Some(r) = rest.strip_prefix('"') {
+        Some(r.split('"').next().unwrap_or(r))
+    } else {
+        Some(rest.split(',').next().unwrap_or(rest))
+    }
+}
+
+fn parse_iv(s: &str) -> Option<String> {
+    s.split("IV=")
+        .nth(1)
+        .map(|v| v.trim().trim_matches('"').to_string())
+}
+
+fn parse_playlist(text: &str, base: &str) -> Result<Plan> {
+    let mut items: Vec<Item> = Vec::new();
+    let mut ended = false;
+    let mut target_dur = 4.0;
+    let mut media_seq: u64 = 0;
+    let mut media_n: u64 = 0;
+    let mut cur_key: Option<Arc<Key>> = None;
+    let mut cur_map: Option<String> = None;
+    let mut map_emitted: Option<String> = None;
+
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
+        if !line.starts_with('#') {
+            let url = join_url(base, line);
+            // the active map (if any, and if not already emitted) opens a
+            // new stream group: write the init before this media segment
+            if let Some(map) = cur_map.clone() {
+                if map_emitted.as_deref() != Some(map.as_str()) {
+                    items.push(Item::Init { url: map.clone() });
+                    map_emitted = Some(map);
+                }
+            }
+            items.push(Item::Media {
+                url,
+                key: cur_key.clone(),
+                seq: media_seq + media_n,
+            });
+            media_n += 1;
+            continue;
+        }
         let lower = line.to_ascii_lowercase();
         if lower.starts_with("#ext-x-key") {
-            if !lower.contains("method=none") {
-                bail!("encrypted HLS is not supported");
+            let method = attr(line, "METHOD").unwrap_or("").to_string();
+            if method.eq_ignore_ascii_case("none") || method.is_empty() {
+                cur_key = None;
+            } else if method.eq_ignore_ascii_case("aes-128") {
+                let Some(uri) = attr(line, "URI") else {
+                    bail!("AES-128 key without URI");
+                };
+                cur_key = Some(Arc::new(Key {
+                    spec: KeySpec {
+                        uri: join_url(base, uri),
+                        iv: parse_iv(line),
+                    },
+                }));
+            } else {
+                bail!("unsupported EXT-X-KEY method: {method}");
             }
         } else if lower.starts_with("#ext-x-map") {
-            if let Some(uri) = line.split("URI=\"").nth(1).and_then(|r| r.split('"').next()) {
-                urls.push(join_url(base, uri));
+            if let Some(uri) = attr(line, "URI") {
+                cur_map = Some(join_url(base, uri));
             }
+        } else if lower.starts_with("#ext-x-media-sequence") {
+            media_seq = line
+                .split(':')
+                .nth(1)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(0);
+        } else if lower.starts_with("#ext-x-targetduration") {
+            target_dur = line
+                .split(':')
+                .nth(1)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(4.0);
         } else if lower.starts_with("#ext-x-endlist") {
-            endlist = true;
-        } else if !line.starts_with('#') {
-            urls.push(join_url(base, line));
+            ended = true;
+        } else if lower.starts_with("#ext-x-byterange") {
+            bail!("EXT-X-BYTERANGE segments are not supported");
         }
     }
-    if urls.is_empty() {
+    if items.is_empty() {
         bail!("no media segments in playlist");
     }
-    if !endlist {
-        bail!("live HLS stream is not supported");
-    }
-    Ok(urls)
+    Ok(Plan {
+        target_dur,
+        ended,
+        items,
+    })
 }
 
-/// One in-flight or landed segment result.
+/// One fetched (and possibly decrypted) item.
 enum Msg {
-    Seg(u64, Vec<u8>),
+    Item(u64, Vec<u8>),
     Warn(String),
     Err(String),
 }
 
-/// Download a VOD HLS playlist into `job.out`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HlsState {
+    url: String,
+    /// v2+: finished item indices (init + media, stream order). v1 (absent):
+    /// media-only indices from the pre-AES build.
+    v: Option<u8>,
+    done: Vec<u64>,
+    /// live only: URLs already written, in stream order
+    written: Option<Vec<String>>,
+}
+
+async fn fetch_bytes(
+    client: &reqwest::Client,
+    headers: &reqwest::header::HeaderMap,
+    url: &str,
+) -> Result<Vec<u8>> {
+    let r = client.get(url).headers(headers.clone()).send().await;
+    match r {
+        Ok(r) if r.status().is_success() => {
+            let b = r.bytes().await.context("read body")?;
+            Ok(b.to_vec())
+        }
+        Ok(r) => bail!("HTTP {} for {url}", r.status()),
+        Err(e) => bail!("{e}"),
+    }
+}
+
+/// Fetch an item, decrypting it first when it carries an AES-128 key.
+async fn fetch_item(
+    client: &reqwest::Client,
+    headers: &reqwest::header::HeaderMap,
+    key_cache: &Mutex<HashMap<String, [u8; 16]>>,
+    item: &Item,
+) -> Result<Vec<u8>> {
+    let body = fetch_bytes(client, headers, item.url()).await?;
+    let Item::Media { key, seq, .. } = item else {
+        return Ok(body); // init segments are not encrypted
+    };
+    let Some(key) = key else { return Ok(body) };
+    let iv = key.iv_for(*seq)?;
+    let material = {
+        let cached = key_cache.lock().unwrap().get(&key.spec.uri).copied();
+        match cached {
+            Some(m) => m,
+            None => {
+                let k = fetch_bytes(client, headers, &key.spec.uri).await?;
+                if k.len() != 16 {
+                    bail!("AES key is {} bytes (want 16)", k.len());
+                }
+                let mut m = [0u8; 16];
+                m.copy_from_slice(&k);
+                key_cache.lock().unwrap().insert(key.spec.uri.clone(), m);
+                m
+            }
+        }
+    };
+    let dec = Aes128CbcDec::new_from_slices(&material, &iv).context("AES init")?;
+    let plain = dec
+        .decrypt_padded_vec_mut::<cbc::cipher::block_padding::Pkcs7>(&body)
+        .map_err(|_| anyhow::anyhow!("AES-128 decrypt failed (wrong key/IV) for {}", item.url()))?;
+    Ok(plain)
+}
+
+fn snap(n: u64, done: &dyn Fn(u64) -> bool) -> Vec<SegmentInfo> {
+    (0..n)
+        .map(|i| SegmentInfo {
+            start: i,
+            end: i,
+            done: u64::from(done(i)),
+        })
+        .collect()
+}
+
+/// Download a VOD or live HLS playlist into `job.out`.
 pub async fn download(
     job: Job,
     events: mpsc::Sender<Progress>,
@@ -117,7 +320,6 @@ pub async fn download(
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
-    // playlist text (follow redirects; the final URL anchors relative segs)
     let resp = client
         .get(&job.url)
         .headers(job.headers.clone())
@@ -130,8 +332,7 @@ pub async fn download(
     let final_url = resp.url().to_string();
     let _ = content_type;
     let text = resp.text().await.context("playlist read failed")?;
-    let urls = Arc::new(parse_playlist(&text, &final_url)?);
-    let n = urls.len() as u64;
+    let plan = parse_playlist(&text, &final_url)?;
 
     let filename = job
         .out
@@ -139,85 +340,174 @@ pub async fn download(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "download".into());
 
-    // resume state (same playlist URL = same segment list)
     let spath = state_path(&job.out);
-    let have: HashSet<u64> = if job.fresh {
+    let st: HlsState = if job.fresh {
         std::fs::remove_file(&spath).ok();
-        HashSet::new()
+        HlsState {
+            url: final_url.clone(),
+            v: Some(2),
+            done: vec![],
+            written: None,
+        }
     } else {
         serde_json::from_str::<HlsState>(&std::fs::read_to_string(&spath).unwrap_or_default())
-            .map(|s| s.done.iter().copied().collect())
-            .unwrap_or_default()
+            .unwrap_or(HlsState {
+                url: final_url.clone(),
+                v: Some(2),
+                done: vec![],
+                written: None,
+            })
     };
 
     let workers = job.segments.clamp(1, 16) as usize;
-    let next = Arc::new(AtomicU64::new(0));
     let total = Arc::new(AtomicU64::new(0));
-    let (tx, mut rx) = mpsc::channel::<Msg>(workers * 2);
     let mut writer = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&job.out)
         .await
         .with_context(|| format!("open {}", job.out.display()))?;
-    let size_now = writer.metadata().await?.len();
-    total.fetch_add(size_now, Ordering::Relaxed);
+    total.fetch_add(writer.metadata().await?.len(), Ordering::Relaxed);
 
     events
-        .send(Progress::Started { url: job.url.clone(), filename, size: None, segments: workers })
+        .send(Progress::Started {
+            url: job.url.clone(),
+            filename,
+            size: None,
+            segments: workers,
+        })
         .await
         .ok();
-    // detail snapshot: one pseudo-segment per media segment (0/1 bytes) so the
-    // UI graph keeps coloring progress
-    let snap = |done: &HashSet<u64>| -> Vec<SegmentInfo> {
-        (0..n)
-            .map(|i| SegmentInfo { start: i, end: i, done: u64::from(done.contains(&i)) })
-            .collect()
+
+    if plan.ended {
+        run_vod(
+            &client,
+            &job,
+            &events,
+            kill,
+            plan,
+            st,
+            &spath,
+            &mut writer,
+            total.clone(),
+            workers,
+        )
+        .await
+    } else {
+        run_live(
+            &client,
+            &job,
+            &events,
+            kill,
+            plan,
+            st,
+            &spath,
+            &mut writer,
+            total,
+        )
+        .await
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_vod(
+    client: &reqwest::Client,
+    job: &Job,
+    events: &mpsc::Sender<Progress>,
+    kill: watch::Receiver<bool>,
+    plan: Plan,
+    st: HlsState,
+    spath: &std::path::Path,
+    writer: &mut tokio::fs::File,
+    total: Arc<AtomicU64>,
+    workers: usize,
+) -> Result<()> {
+    let n = plan.items.len() as u64;
+    // v1 state (pre multi-init) counts media segments only; offset by the
+    // leading init item when present
+    let v1_offset = match (st.v, plan.items.first()) {
+        (None | Some(1), Some(Item::Init { .. })) => 1,
+        _ => 0,
     };
-    events.send(Progress::Detail { segments: snap(&have) }).await.ok();
+    let have: HashSet<u64> = if st.written.is_none() && !st.done.is_empty() {
+        st.done.iter().map(|i| i + v1_offset).collect()
+    } else if let Some(w) = &st.written {
+        plan.items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| w.contains(&it.url().to_string()))
+            .map(|(i, _)| i as u64)
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    events
+        .send(Progress::Detail {
+            segments: snap(n, &|i| have.contains(&i)),
+        })
+        .await
+        .ok();
+
+    let (tx, mut rx) = mpsc::channel::<Msg>(workers * 2);
+    let next = Arc::new(AtomicU64::new(0));
+    let key_cache = Arc::new(Mutex::new(HashMap::<String, [u8; 16]>::new()));
 
     for _ in 0..workers {
-        let (tx, client, urls, next, total, have) =
-            (tx.clone(), client.clone(), urls.clone(), next.clone(), total.clone(), have.clone());
-        let (headers, retries, kill) =
-            (job.headers.clone(), job.limits.retries, kill.clone());
+        let (tx, client, next, have, key_cache, total) = (
+            tx.clone(),
+            client.clone(),
+            next.clone(),
+            have.clone(),
+            key_cache.clone(),
+            total.clone(),
+        );
+        let (items, headers, retries, kill) = (
+            Arc::new(plan.items.clone()),
+            job.headers.clone(),
+            job.limits.retries,
+            kill.clone(),
+        );
         tokio::spawn(async move {
             loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
-                if i >= urls.len() as u64 {
+                if i >= items.len() as u64 {
                     return;
                 }
                 if have.contains(&i) {
-                    continue; // already on disk from an earlier run
+                    continue;
                 }
+                let item = items[i as usize].clone();
                 let mut err = String::new();
                 let mut body = None;
                 for att in 0..=retries {
                     if *kill.borrow() {
                         return;
                     }
-                    match client.get(&urls[i as usize]).headers(headers.clone()).send().await {
-                        Ok(r) if r.status().is_success() => match r.bytes().await {
-                            Ok(b) => {
-                                body = Some(b);
-                                break;
-                            }
-                            Err(e) => err = e.to_string(),
-                        },
-                        Ok(r) => err = format!("HTTP {}", r.status()),
-                        Err(e) => err = e.to_string(),
+                    match fetch_item(&client, &headers, &key_cache, &item).await {
+                        Ok(b) => {
+                            body = Some(b);
+                            break;
+                        }
+                        Err(e) => err = format!("{e:#}"),
                     }
-                    if tx.send(Msg::Warn(format!("segment {i}: {err}"))).await.is_err() {
+                    if tx
+                        .send(Msg::Warn(format!("item {i}: {err}")))
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
                     tokio::time::sleep(Duration::from_millis(300 * (att + 1) as u64)).await;
                 }
                 let Some(b) = body else {
-                    let _ = tx.send(Msg::Err(format!("segment {i} failed after retries: {err}"))).await;
+                    let _ = tx
+                        .send(Msg::Err(format!("item {i} failed after retries: {err}")))
+                        .await;
                     return;
                 };
                 total.fetch_add(b.len() as u64, Ordering::Relaxed);
-                if tx.send(Msg::Seg(i, b.to_vec())).await.is_err() {
+                if tx.send(Msg::Item(i, b)).await.is_err() {
                     return;
                 }
             }
@@ -242,7 +532,7 @@ pub async fn download(
         let msg = tokio::select! {
             m = rx.recv() => match m {
                 Some(m) => m,
-                None => break, // all workers done
+                None => break,
             },
             _ = tokio::time::sleep(Duration::from_millis(200)) => {
                 if *kill.borrow() {
@@ -258,9 +548,8 @@ pub async fn download(
                 fail = Some(e);
                 break;
             }
-            Msg::Seg(i, data) => {
+            Msg::Item(i, data) => {
                 pending.insert(i, data);
-                // flush everything that is now contiguous
                 while let Some(buf) = pending.remove(&write_idx) {
                     if let Err(e) = writer.write_all(&buf).await {
                         fail = Some(format!("write failed: {e}"));
@@ -272,43 +561,306 @@ pub async fn download(
                     let bytes = buf.len() as u64;
                     let t = total.fetch_add(0, Ordering::Relaxed);
                     events
-                        .send(Progress::Bytes { delta: bytes, total_done: t, size: None })
+                        .send(Progress::Bytes {
+                            delta: bytes,
+                            total_done: t,
+                            size: None,
+                        })
                         .await
                         .ok();
-                    events.send(Progress::SegmentDone { index: (write_idx - 1) as usize }).await.ok();
                 }
                 if fail.is_some() {
                     break;
                 }
                 if write_idx < n {
-                    events.send(Progress::Detail { segments: snap(&dl_done) }).await.ok();
+                    events
+                        .send(Progress::Detail {
+                            segments: snap(n, &|i| dl_done.contains(&i)),
+                        })
+                        .await
+                        .ok();
                 }
             }
         }
     }
 
-    // workers may exit on kill before the writer notices
-    if fail.is_none() && write_idx < n && *kill.borrow() {
-        cancelled = true;
-    }
-
     if fail.is_none() && write_idx >= n && !cancelled {
-        std::fs::remove_file(&spath).ok();
+        std::fs::remove_file(spath).ok();
         let size = total.load(Ordering::Relaxed);
-        events.send(Progress::Completed { size, sha256: None }).await.ok();
+        events
+            .send(Progress::Completed { size, sha256: None })
+            .await
+            .ok();
         return Ok(());
     }
-
-    // save resume state, then report
-    let st = HlsState { url: final_url, done: sorted(&dl_done) };
-    std::fs::write(&spath, serde_json::to_string(&st).unwrap_or_default()).ok();
-    if cancelled {
+    if cancelled || (fail.is_none() && write_idx < n && *kill.borrow()) {
         let t = total.load(Ordering::Relaxed);
-        events.send(Progress::Cancelled { total_done: t }).await.ok();
+        let st = HlsState {
+            url: job.url.clone(),
+            v: Some(2),
+            done: sorted(&dl_done),
+            written: None,
+        };
+        std::fs::write(spath, serde_json::to_string(&st).unwrap_or_default()).ok();
+        events
+            .send(Progress::Cancelled { total_done: t })
+            .await
+            .ok();
         return Ok(());
     }
     let e = fail.unwrap_or_else(|| "HLS download incomplete".into());
-    events.send(Progress::Failed { error: e.clone() }).await.ok();
+    events
+        .send(Progress::Failed { error: e.clone() })
+        .await
+        .ok();
+    bail!("{e}")
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_live(
+    client: &reqwest::Client,
+    job: &Job,
+    events: &mpsc::Sender<Progress>,
+    mut kill: watch::Receiver<bool>,
+    first: Plan,
+    st: HlsState,
+    spath: &std::path::Path,
+    writer: &mut tokio::fs::File,
+    total: Arc<AtomicU64>,
+) -> Result<()> {
+    let mut written: HashSet<String> = st.written.unwrap_or_default().into_iter().collect();
+    let key_cache = Arc::new(Mutex::new(HashMap::<String, [u8; 16]>::new()));
+    let mut poll_n: usize = 0;
+
+    loop {
+        let plan = if poll_n == 0 {
+            first.clone_items()
+        } else {
+            match fetch_bytes(client, &job.headers, &job.url).await {
+                Ok(t) => match String::from_utf8(t)
+                    .map_err(|e| anyhow::anyhow!("playlist utf8: {e}"))
+                    .and_then(|t| parse_playlist(&t, &job.url))
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("live poll failed: {e:#}");
+                        if !sleep_killable(&mut kill, 2.0).await {
+                            break;
+                        }
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("live poll failed: {e:#}");
+                    if !sleep_killable(&mut kill, 2.0).await {
+                        break;
+                    }
+                    continue;
+                }
+            }
+        };
+        poll_n += 1;
+
+        // candidates in playlist order, skipping already-written URLs
+        let candidates: Vec<Item> = plan
+            .items
+            .iter()
+            .filter(|it| !written.contains(it.url()))
+            .cloned()
+            .collect();
+        let n_all = plan.items.len() as u64;
+        let written_n = (n_all - candidates.len() as u64) as u64;
+        events
+            .send(Progress::Detail {
+                segments: snap(n_all, &|i| i < written_n),
+            })
+            .await
+            .ok();
+
+        // fetch candidates with a small pool, write strictly in order
+        let (tx, mut rx) = mpsc::channel::<Msg>(8);
+        let ncand = candidates.len() as u64;
+        let next = Arc::new(AtomicU64::new(0));
+        let pool = 4.min(workers_of(job));
+        for _ in 0..pool {
+            let (tx, client, next, key_cache) =
+                (tx.clone(), client.clone(), next.clone(), key_cache.clone());
+            let (cands, headers) = (Arc::new(candidates.clone()), job.headers.clone());
+            tokio::spawn(async move {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= cands.len() as u64 {
+                        return;
+                    }
+                    match fetch_item(&client, &headers, &key_cache, &cands[i as usize]).await {
+                        Ok(b) => {
+                            if tx.send(Msg::Item(i, b)).await.is_err() {
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            // live: drop the segment, do not fail the job
+                            let _ = tx
+                                .send(Msg::Warn(cands[i as usize].url().to_string()))
+                                .await;
+                            tracing::debug!("live segment dropped: {e:#}");
+                        }
+                    }
+                }
+            });
+        }
+        drop(tx);
+
+        let mut pending: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+        let mut wpos: u64 = 0;
+        let mut dropped: HashSet<u64> = HashSet::new();
+        enum Step {
+            Msg(Msg),
+            Drained,
+            Killed(bool),
+        }
+        loop {
+            let step = tokio::select! {
+                m = rx.recv() => match m {
+                    Some(m) => Step::Msg(m),
+                    None => Step::Drained,
+                },
+                k = changed_or_stall(&mut kill) => Step::Killed(k),
+            };
+            match step {
+                Step::Drained => break,
+                Step::Killed(true) => {
+                    return finish_live(job, events, kill, writer, &total, spath, written, false)
+                        .await;
+                }
+                Step::Killed(false) => continue,
+                Step::Msg(Msg::Warn(u)) => {
+                    // a dropped candidate still advances the write cursor so
+                    // ordering of later segments is preserved
+                    if let Some(pos) = candidates.iter().position(|c| c.url() == u) {
+                        dropped.insert(pos as u64);
+                    }
+                }
+                Step::Msg(Msg::Err(e)) => {
+                    tracing::debug!("live item error: {e}");
+                }
+                Step::Msg(Msg::Item(i, data)) => {
+                    pending.insert(i, data);
+                }
+            }
+            // flush everything contiguous (skipping dropped)
+            while pending.contains_key(&wpos) || dropped.contains(&wpos) {
+                if let Some(buf) = pending.remove(&wpos) {
+                    if writer.write_all(&buf).await.is_err() {
+                        bail!("write failed");
+                    }
+                    let _ = writer.flush().await;
+                    total.fetch_add(buf.len() as u64, Ordering::Relaxed);
+                    let t = total.load(Ordering::Relaxed);
+                    events
+                        .send(Progress::Bytes {
+                            delta: buf.len() as u64,
+                            total_done: t,
+                            size: None,
+                        })
+                        .await
+                        .ok();
+                    if let Some(it) = candidates.get(wpos as usize) {
+                        written.insert(it.url().to_string());
+                    }
+                }
+                wpos += 1;
+            }
+        }
+        let _ = ncand;
+
+        if plan.ended && candidates.iter().all(|c| written.contains(c.url())) {
+            return finish_live(job, events, kill, writer, &total, spath, written, true).await;
+        }
+
+        let wait = plan.target_dur.clamp(1.0, 8.0) as f64 / 2.0;
+        if !sleep_killable(&mut kill, wait).await {
+            break;
+        }
+    }
+
+    // kill observed
+    finish_live(job, events, kill, writer, &total, spath, written, false).await
+}
+
+fn workers_of(job: &Job) -> usize {
+    job.segments.clamp(1, 16) as usize
+}
+
+/// Wait for a kill signal; pends forever when the sender is gone (the
+/// job can never be killed then), so `select!` does not spin.
+async fn changed_or_stall(kill: &mut watch::Receiver<bool>) -> bool {
+    if kill.changed().await.is_err() {
+        std::future::pending::<()>().await;
+    }
+    *kill.borrow()
+}
+
+/// Sleep that returns false when killed.
+async fn sleep_killable(kill: &mut watch::Receiver<bool>, secs: f64) -> bool {
+    let dur = Duration::from_millis((secs * 1000.0) as u64);
+    if kill.has_changed().is_err() {
+        // sender already dropped: nothing can ever kill this job
+        tokio::time::sleep(dur).await;
+        return true;
+    }
+    tokio::select! {
+        _ = tokio::time::sleep(dur) => true,
+        r = kill.changed() => match r {
+            Ok(()) => !*kill.borrow(),
+            Err(_) => true, // dropped mid-sleep: not killed
+        },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn finish_live(
+    job: &Job,
+    events: &mpsc::Sender<Progress>,
+    kill: watch::Receiver<bool>,
+    writer: &mut tokio::fs::File,
+    total: &Arc<AtomicU64>,
+    spath: &std::path::Path,
+    written: HashSet<String>,
+    complete: bool,
+) -> Result<()> {
+    let _ = writer;
+    let t = total.load(Ordering::Relaxed);
+    if complete {
+        std::fs::remove_file(spath).ok();
+        events
+            .send(Progress::Completed {
+                size: t,
+                sha256: None,
+            })
+            .await
+            .ok();
+        return Ok(());
+    }
+    let st = HlsState {
+        url: job.url.clone(),
+        v: Some(2),
+        done: vec![],
+        written: Some(written.into_iter().collect()),
+    };
+    std::fs::write(spath, serde_json::to_string(&st).unwrap_or_default()).ok();
+    if *kill.borrow() {
+        events
+            .send(Progress::Cancelled { total_done: t })
+            .await
+            .ok();
+        return Ok(());
+    }
+    let e = "live stream ended without ENDLIST".to_string();
+    events
+        .send(Progress::Failed { error: e.clone() })
+        .await
+        .ok();
     bail!("{e}")
 }
 
@@ -316,4 +868,14 @@ fn sorted(set: &HashSet<u64>) -> Vec<u64> {
     let mut v: Vec<u64> = set.iter().copied().collect();
     v.sort_unstable();
     v
+}
+
+impl Plan {
+    fn clone_items(&self) -> Plan {
+        Plan {
+            target_dur: self.target_dur,
+            ended: self.ended,
+            items: self.items.clone(),
+        }
+    }
 }

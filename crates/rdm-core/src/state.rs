@@ -75,7 +75,11 @@ pub fn split(size: u64, segments: u64) -> Vec<Segment> {
     for i in 0..n {
         let extra = if i < rem { 1 } else { 0 };
         let end = start + base + extra - 1;
-        out.push(Segment { start, end, done: 0 });
+        out.push(Segment {
+            start,
+            end,
+            done: 0,
+        });
         start = end + 1;
     }
     out

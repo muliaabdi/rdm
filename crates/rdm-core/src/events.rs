@@ -49,17 +49,33 @@ impl Progress {
     /// Human one-line form for CLI display.
     pub fn brief(&self) -> String {
         match self {
-            Progress::Started { filename, size, segments, .. } => format!(
+            Progress::Started {
+                filename,
+                size,
+                segments,
+                ..
+            } => format!(
                 "start {filename} {} seg={segments}",
                 size.map(|s| format!("{s}B")).unwrap_or_else(|| "?B".into())
             ),
-            Progress::Bytes { total_done, size, .. } => match size {
-                Some(s) if *s > 0 => format!("\r{:.1}% {}/{}B", 100.0 * *total_done as f64 / *s as f64, total_done, s),
+            Progress::Bytes {
+                total_done, size, ..
+            } => match size {
+                Some(s) if *s > 0 => format!(
+                    "\r{:.1}% {}/{}B",
+                    100.0 * *total_done as f64 / *s as f64,
+                    total_done,
+                    s
+                ),
                 _ => format!("\r{}B", total_done),
             },
             Progress::Detail { .. } => String::new(),
-        Progress::SegmentDone { index } => format!("segment {index} done"),
-            Progress::Retrying { index, attempt, error } => {
+            Progress::SegmentDone { index } => format!("segment {index} done"),
+            Progress::Retrying {
+                index,
+                attempt,
+                error,
+            } => {
                 format!("retry seg {index} #{attempt}: {error}")
             }
             Progress::Completed { size, sha256 } => {

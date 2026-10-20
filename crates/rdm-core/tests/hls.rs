@@ -38,10 +38,17 @@ async fn playlist() -> Response {
 }
 
 async fn segment(State(st): State<St>, Path(i): Path<String>) -> Response {
-    let idx: usize = i.trim_start_matches("seg").trim_end_matches(".ts").parse().unwrap();
+    let idx: usize = i
+        .trim_start_matches("seg")
+        .trim_end_matches(".ts")
+        .parse()
+        .unwrap();
     match st.0.get(idx) {
         Some(b) => ([(header::CONTENT_TYPE, "video/mp2t")], b.clone()).into_response(),
-        None => Response::builder().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap(),
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .unwrap(),
     }
 }
 
@@ -67,14 +74,24 @@ async fn tmp_out(name: &str) -> PathBuf {
 /// True when the job was cancelled mid-way (state file present, no full file).
 fn app_state_incomplete(dir: &std::path::Path, out: &std::path::Path) -> bool {
     dir.join("vod.ts.rdm-hls.json").exists()
-        && std::fs::metadata(out).map(|m| m.len() < full().len() as u64).unwrap_or(true)
+        && std::fs::metadata(out)
+            .map(|m| m.len() < full().len() as u64)
+            .unwrap_or(true)
 }
 
 #[tokio::test]
 async fn hls_download_matches_concat() {
     let base = serve().await;
     let dir = tmp_out("full").await;
-    let job = job_from_url(&base, Some(dir.clone()), 4, Limits { retries: 2, ..Default::default() });
+    let job = job_from_url(
+        &base,
+        Some(dir.clone()),
+        4,
+        Limits {
+            retries: 2,
+            ..Default::default()
+        },
+    );
     let (tx, mut rx) = mpsc::channel(256);
     let kill = watch::channel(false).1;
     tokio::spawn(download(job, tx, kill));
@@ -90,7 +107,11 @@ async fn hls_download_matches_concat() {
     assert!(completed, "no Completed event");
     let out = dir.join("vod.ts"); // .m3u8 renamed to .ts
     assert!(out.exists(), "output {:?} missing", out);
-    assert_eq!(std::fs::read(&out).unwrap(), full(), "concatenated segments mismatch");
+    assert_eq!(
+        std::fs::read(&out).unwrap(),
+        full(),
+        "concatenated segments mismatch"
+    );
     // state file cleaned up on completion
     assert!(!dir.join("vod.ts.rdm-hls.json").exists());
 }
@@ -103,12 +124,15 @@ async fn hls_resume_finishes_after_cancel() {
     let st = St(Arc::new((0..NSEG).map(seg_bytes).collect()));
     let app = axum::Router::new()
         .route("/vod.m3u8", axum::routing::get(playlist))
-        .route("/{i}", axum::routing::get(|State(st): State<St>, Path(i): Path<String>| async move {
-            if SLOW.load(Ordering::Relaxed) {
-                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-            }
-            segment(State(st), Path(i)).await
-        }))
+        .route(
+            "/{i}",
+            axum::routing::get(|State(st): State<St>, Path(i): Path<String>| async move {
+                if SLOW.load(Ordering::Relaxed) {
+                    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                }
+                segment(State(st), Path(i)).await
+            }),
+        )
         .with_state(st);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -121,7 +145,15 @@ async fn hls_resume_finishes_after_cancel() {
     // run 1: slow segments, cancel once the first few landed
     {
         SLOW.store(true, Ordering::Relaxed);
-        let job = job_from_url(&base, Some(dir.clone()), 4, Limits { retries: 1, ..Default::default() });
+        let job = job_from_url(
+            &base,
+            Some(dir.clone()),
+            4,
+            Limits {
+                retries: 1,
+                ..Default::default()
+            },
+        );
         let (tx, mut rx) = mpsc::channel(256);
         let (ktx, kill) = watch::channel(false);
         let h = tokio::spawn(download(job, tx, kill));
@@ -135,13 +167,24 @@ async fn hls_resume_finishes_after_cancel() {
             }
         }
         h.await.unwrap().unwrap();
-        assert!(app_state_incomplete(&dir, &out), "run 1 should not have completed");
+        assert!(
+            app_state_incomplete(&dir, &out),
+            "run 1 should not have completed"
+        );
         SLOW.store(false, Ordering::Relaxed);
     }
 
     // run 2: resume, must complete and match
     {
-        let job = job_from_url(&base, Some(dir.clone()), 4, Limits { retries: 2, ..Default::default() });
+        let job = job_from_url(
+            &base,
+            Some(dir.clone()),
+            4,
+            Limits {
+                retries: 2,
+                ..Default::default()
+            },
+        );
         let (tx, mut rx) = mpsc::channel(256);
         let kill = watch::channel(false).1;
         tokio::spawn(download(job, tx, kill));
@@ -155,5 +198,9 @@ async fn hls_resume_finishes_after_cancel() {
         }
         assert!(completed);
     }
-    assert_eq!(std::fs::read(&out).unwrap(), full(), "resumed output mismatch");
+    assert_eq!(
+        std::fs::read(&out).unwrap(),
+        full(),
+        "resumed output mismatch"
+    );
 }

@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use futures_util::StreamExt;
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_RANGE, ETAG, IF_MATCH, LAST_MODIFIED, RANGE};
+use reqwest::header::{
+    HeaderMap, HeaderValue, CONTENT_RANGE, ETAG, IF_MATCH, LAST_MODIFIED, RANGE,
+};
 use tokio::sync::{mpsc, watch, Mutex};
 
 use crate::events::Progress;
@@ -32,7 +34,12 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { max_speed: None, retries: 5, min_segment_size: DEFAULT_MIN_SEGMENT, sha256: false }
+        Self {
+            max_speed: None,
+            retries: 5,
+            min_segment_size: DEFAULT_MIN_SEGMENT,
+            sha256: false,
+        }
     }
 }
 
@@ -64,7 +71,13 @@ pub fn job_from_url(url: &str, out_dir: Option<PathBuf>, segments: u64, limits: 
 pub fn sanitize_filename(name: &str) -> String {
     let clean: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '(' | ')' | ' ') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '(' | ')' | ' ') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let trimmed = clean.trim();
     if trimmed.is_empty() {
@@ -77,7 +90,10 @@ pub fn sanitize_filename(name: &str) -> String {
 pub fn filename_from_url(url: &str) -> String {
     let path = url.split('#').next().unwrap_or(url);
     let path = path.split('?').next().unwrap_or(path);
-    let name = path.rsplit('/').find(|s| !s.is_empty()).unwrap_or("download");
+    let name = path
+        .rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or("download");
     sanitize_filename(name)
 }
 
@@ -96,7 +112,10 @@ struct Limiter {
 
 impl Limiter {
     fn new(max: Option<u64>) -> Self {
-        Self { max, inner: Mutex::new((0, Instant::now())) }
+        Self {
+            max,
+            inner: Mutex::new((0, Instant::now())),
+        }
     }
     /// Wait until `n` bytes may be transferred.
     async fn acquire(&self, n: usize) {
@@ -136,7 +155,10 @@ struct Probe {
 }
 
 async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
-    let req = client.get(&job.url).headers(job.headers.clone()).header(RANGE, "bytes=0-0");
+    let req = client
+        .get(&job.url)
+        .headers(job.headers.clone())
+        .header(RANGE, "bytes=0-0");
     let resp = req.send().await.context("probe request failed")?;
     let status = resp.status();
     if !status.is_success() {
@@ -158,7 +180,11 @@ async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
     if let Some(cr) = resp.headers().get(CONTENT_RANGE) {
         // bytes 0-0/12345
         if let Ok(s) = cr.to_str() {
-            if let Some(total) = s.rsplit('/').next().and_then(|t| t.trim().parse::<u64>().ok()) {
+            if let Some(total) = s
+                .rsplit('/')
+                .next()
+                .and_then(|t| t.trim().parse::<u64>().ok())
+            {
                 size = Some(total);
                 accept_ranges = true;
             }
@@ -172,10 +198,17 @@ async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
     let _ = req; // drop body via resp below
     let headers_ct = resp.headers().get(reqwest::header::CONTENT_TYPE).cloned();
     let _ = resp.bytes().await;
-    let content_type = headers_ct
-        .and_then(|v| v.to_str().ok().map(str::to_string));
+    let content_type = headers_ct.and_then(|v| v.to_str().ok().map(str::to_string));
     let playlist = crate::hls::looks_like_playlist(content_type.as_deref(), final_url.as_str());
-    Ok(Probe { size, accept_ranges, etag, last_modified, final_url, content_type, playlist })
+    Ok(Probe {
+        size,
+        accept_ranges,
+        etag,
+        last_modified,
+        final_url,
+        content_type,
+        playlist,
+    })
 }
 
 enum Outcome {
@@ -263,16 +296,27 @@ pub async fn download(
                 {
                     split(sz, job.segments)
                 }
-                Some(sz) => vec![crate::state::Segment { start: 0, end: sz.saturating_sub(1), done: 0 }],
-                None => vec![crate::state::Segment { start: 0, end: u64::MAX, done: 0 }],
+                Some(sz) => vec![crate::state::Segment {
+                    start: 0,
+                    end: sz.saturating_sub(1),
+                    done: 0,
+                }],
+                None => vec![crate::state::Segment {
+                    start: 0,
+                    end: u64::MAX,
+                    done: 0,
+                }],
             };
-            (JobState {
-                url: probe.final_url.to_string(),
-                size: probe.size,
-                etag: probe.etag.clone(),
-                last_modified: probe.last_modified.clone(),
-                segments: segs,
-            }, false)
+            (
+                JobState {
+                    url: probe.final_url.to_string(),
+                    size: probe.size,
+                    etag: probe.etag.clone(),
+                    last_modified: probe.last_modified.clone(),
+                    segments: segs,
+                },
+                false,
+            )
         }
     };
 
@@ -364,7 +408,9 @@ pub async fn download(
     if matches!(outcome, Outcome::Cancelled) {
         st.save(&spath).ok();
         events
-            .send(Progress::Cancelled { total_done: st.total_done() })
+            .send(Progress::Cancelled {
+                total_done: st.total_done(),
+            })
             .await
             .ok();
         if let Some(err) = shared.failed.lock().await.take() {
@@ -376,12 +422,21 @@ pub async fn download(
         bail!(err);
     }
     if !st.complete() {
-        bail!("engine ended before completion: {} / {}", st.total_done(), st.size.unwrap_or(0));
+        bail!(
+            "engine ended before completion: {} / {}",
+            st.total_done(),
+            st.size.unwrap_or(0)
+        );
     }
     finish(job, st, &limits, &events).await
 }
 
-async fn finish(job: Job, st: JobState, limits: &Limits, events: &mpsc::Sender<Progress>) -> Result<()> {
+async fn finish(
+    job: Job,
+    st: JobState,
+    limits: &Limits,
+    events: &mpsc::Sender<Progress>,
+) -> Result<()> {
     let size = st.total_done();
     // flush directory entry best effort
     if let Some(f) = std::fs::File::open(&job.out).ok() {
@@ -393,7 +448,10 @@ async fn finish(job: Job, st: JobState, limits: &Limits, events: &mpsc::Sender<P
     } else {
         None
     };
-    events.send(Progress::Completed { size, sha256: sha }).await.ok();
+    events
+        .send(Progress::Completed { size, sha256: sha })
+        .await
+        .ok();
     Ok(())
 }
 
@@ -512,22 +570,36 @@ async fn segment_task(
                     let t = st.total_done();
                     t
                 };
-                let due = { sh.last_detail.lock().await.map(|i| i.elapsed() >= Duration::from_millis(400)).unwrap_or(true) };
+                let due = {
+                    sh.last_detail
+                        .lock()
+                        .await
+                        .map(|i| i.elapsed() >= Duration::from_millis(400))
+                        .unwrap_or(true)
+                };
                 if due {
                     let snap = {
                         let st = sh.state.lock().await;
                         st.segments
                             .iter()
-                            .map(|s| crate::events::SegmentInfo { start: s.start, end: s.end, done: s.done })
+                            .map(|s| crate::events::SegmentInfo {
+                                start: s.start,
+                                end: s.end,
+                                done: s.done,
+                            })
                             .collect::<Vec<_>>()
                     };
                     *sh.last_detail.lock().await = Some(Instant::now());
                     ev.send(Progress::Detail { segments: snap }).await.ok();
                 }
                 let size_now = { sh.state.lock().await.size };
-                ev.send(Progress::Bytes { delta: take as u64, total_done, size: size_now })
-                    .await
-                    .ok();
+                ev.send(Progress::Bytes {
+                    delta: take as u64,
+                    total_done,
+                    size: size_now,
+                })
+                .await
+                .ok();
             }
             // Stream ended: verify segment coverage.
             let (complete, remaining) = {
@@ -583,17 +655,33 @@ async fn steal(sh: &Shared, from: usize) -> Option<usize> {
 }
 
 /// Split what is left of `s` in half; returns (new end for `s`, stolen segment).
-fn split_remaining(s: &crate::state::Segment, min_stolen: u64) -> Option<(u64, crate::state::Segment)> {
+fn split_remaining(
+    s: &crate::state::Segment,
+    min_stolen: u64,
+) -> Option<(u64, crate::state::Segment)> {
     let rem = s.remaining();
     if rem < min_stolen.saturating_mul(2) {
         return None; // halves would be too small to matter
     }
     let off = s.offset();
     let mid = off + rem / 2;
-    Some((mid - 1, crate::state::Segment { start: mid, end: s.end, done: 0 }))
+    Some((
+        mid - 1,
+        crate::state::Segment {
+            start: mid,
+            end: s.end,
+            done: 0,
+        },
+    ))
 }
 
-async fn retry(sh: Arc<Shared>, idx: usize, retries: u32, msg: String, ev: &mpsc::Sender<Progress>) -> bool {
+async fn retry(
+    sh: Arc<Shared>,
+    idx: usize,
+    retries: u32,
+    msg: String,
+    ev: &mpsc::Sender<Progress>,
+) -> bool {
     let n = {
         let mut v = sh.attempts.lock().await;
         if v.len() <= idx {
@@ -606,7 +694,13 @@ async fn retry(sh: Arc<Shared>, idx: usize, retries: u32, msg: String, ev: &mpsc
         *sh.failed.lock().await = Some(msg);
         return false;
     }
-    ev.send(Progress::Retrying { index: idx, attempt: n, error: msg }).await.ok();
+    ev.send(Progress::Retrying {
+        index: idx,
+        attempt: n,
+        error: msg,
+    })
+    .await
+    .ok();
     tokio::time::sleep(RETRY_DELAY * n as u32).await;
     true
 }
