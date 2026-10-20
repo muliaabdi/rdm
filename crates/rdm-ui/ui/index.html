@@ -355,6 +355,22 @@
     transition: opacity .15s ease, transform .15s ease;
   }
   #toast.on { opacity: 1; transform: translateX(-50%); }
+  /* clipboard offer: quiet bottom-right card, one action, no focus steal */
+  #clipoff {
+    position: fixed; right: 16px; bottom: 36px; z-index: 89;
+    display: flex; align-items: center; gap: 10px;
+    background: #2b2f36; color: #f2f3f5;
+    padding: 9px 10px 9px 14px; border-radius: 10px; font-size: 12px;
+    max-width: min(440px, 86vw); box-shadow: 0 8px 24px rgba(0,0,0,.28);
+    opacity: 0; pointer-events: none; transform: translateY(6px);
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  #clipoff.on { opacity: 1; pointer-events: auto; transform: none; }
+  #clipoff .co-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  #clipoff .co-btns { display: flex; gap: 6px; flex: none; }
+  #clipoff button { border: 0; border-radius: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+  #clipoff .co-dl { background: var(--green); color: #fff; }
+  #clipoff .co-x { background: rgba(255,255,255,.14); color: #f2f3f5; }
   #dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 11px; }
   #dlg .fld label { width: 112px; flex: none; color: var(--txt2); line-height: 1.25; }
   /* tall sub-blocks (folder grid, type grid): label aligns with first row */
@@ -552,6 +568,7 @@ const I18N = {
     st_completed: "Done", st_failed: "Failed", st_paused: "Paused",
     st_cancelled: "Cancelled", st_queued: "Queued", st_missing: "Missing",
     fld_parallel: "Max parallel jobs", fld_notify: "Notify when done",
+    fld_clipboard: "Offer to download copied links",
     del_title: "Delete download", del_hint: "Remove this job from the list.",
     del_files: "Also delete partial files", btn_delete: "Delete",
     items_fmt: "{n} items · {m} active", total_fmt: "{s} total",
@@ -605,6 +622,7 @@ const I18N = {
     st_completed: "Selesai", st_failed: "Gagal", st_paused: "Dijeda",
     st_cancelled: "Dibatalkan", st_queued: "Diantrekan", st_missing: "Hilang",
     fld_parallel: "Maks job paralel", fld_notify: "Notifikasi saat selesai",
+    fld_clipboard: "Tawarkan unduhan tautan yang disalin",
     del_title: "Hapus unduhan", del_hint: "Buang job ini dari daftar.",
     del_files: "Hapus juga berkas sebagian", btn_delete: "Hapus",
     items_fmt: "{n} item · {m} aktif", total_fmt: "{s} total",
@@ -1271,7 +1289,7 @@ function paintGraph(cv, samples) {
 function apply(v) {
   const j = jobs.get(v.id) || { id: v.id, filename: "?", done: 0, size: null, status: "running", speed: 0 };
   let rebuild = false;
-  for (const k of ["filename", "out_path", "size", "done", "status", "error"]) {
+  for (const k of ["filename", "out_path", "size", "done", "status", "error", "url"]) {
     if (v[k] != null && j[k] !== v[k]) { j[k] = v[k]; if (k === "status") rebuild = true; }
   }
   if (v.missing != null) j.missing = v.missing;
@@ -1669,6 +1687,7 @@ $("b-options").onclick = async () => {
       <option value="dark"${localStorage.rdm_theme === "dark" ? " selected" : ""}>${t("opt_dark")}</option></select></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-auto" type="checkbox"${auto ? " checked" : ""}><span>${t("fld_autostart")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}><span>${t("fld_notify")}</span></label></div>
+    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-clip" type="checkbox"${s.clipboard_watch !== false ? " checked" : ""}><span>${t("fld_clipboard")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-ytdlp" type="checkbox"${s.ytdlp_update !== false ? " checked" : ""}><span>${t("fld_ytdlp")}</span></label></div>
     </div>
     </div>
@@ -1745,8 +1764,10 @@ $("b-options").onclick = async () => {
            max_parallel: Math.min(16, Math.max(1, Number($("o-par").value) || 3)),
            speed_limit: Math.max(0, Number($("o-speed").value) || 0),
            categories: catsClean, ytdlp_update: $("o-ytdlp").checked, theme: $("o-theme").value,
-           lang: next, intercept_ext: ints, autostart: auto, notify: $("o-notify").checked },
+           lang: next, intercept_ext: ints, autostart: auto, notify: $("o-notify").checked,
+           clipboard_watch: $("o-clip").checked },
     });
+    clipWatch = $("o-clip").checked;
     setTheme($("o-theme").value);
     await invoke("set_autostart", { enabled: auto }).catch((e) => toast(trErr(e)));
     closeModal();
@@ -1759,6 +1780,7 @@ $("b-options").onclick = async () => {
     const s = await invoke("get_settings");
     if (s && s.lang === "id") lang = "id";
     if (s && s.theme) setTheme(s.theme);
+    clipWatch = !s || s.clipboard_watch !== false;
     // keep the autostart entry pointing at this build
     if (s && s.autostart) invoke("set_autostart", { enabled: true }).catch(() => {});
   } catch (e) { diag("lang load: " + e); }
@@ -1768,6 +1790,47 @@ $("b-options").onclick = async () => {
 invoke("list_jobs").catch(() => {});
 setInterval(() => invoke("list_jobs").catch(() => {}), 5000);
 if (detailWin) initDetailWindow();
+
+/* ---------- clipboard watch: offer to download copied links ---------- */
+const clipSeen = new Set();
+let clipLast = "";
+let clipWatch = true;
+function clipOffer(url) {
+  clipSeen.add(url);
+  let el = $("clipoff");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "clipoff"; el.setAttribute("role", "dialog");
+    el.innerHTML = `<div class="co-txt"></div><div class="co-btns">
+      <button class="co-dl"></button><button class="co-x">✕</button></div>`;
+    document.body.appendChild(el);
+    el.querySelector(".co-x").onclick = () => el.classList.remove("on");
+  }
+  el.querySelector(".co-txt").textContent = url;
+  el.title = url;
+  const dl = el.querySelector(".co-dl");
+  dl.textContent = t("btn_download");
+  dl.onclick = () => {
+    el.classList.remove("on");
+    invoke("add_url", { url }).catch((e) => toast(trErr(e)));
+  };
+  el.classList.add("on");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("on"), 10000);
+}
+async function clipTick() {
+  if (!clipWatch || detailWin || document.hidden) return;
+  let txt = "";
+  try { txt = (await invoke("plugin:clipboard-manager|read_text") || "").trim(); }
+  catch { return; }
+  if (!/^https?:\/\/\S+$/i.test(txt) || txt === clipLast) return;
+  clipLast = txt;
+  if (clipSeen.has(txt)) return;
+  if ([...jobs.values()].some((j) => j.url === txt)) { clipSeen.add(txt); return; }
+  clipOffer(txt);
+}
+setInterval(clipTick, 1000);
+
 </script>
 </body>
 </html>

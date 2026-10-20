@@ -670,6 +670,7 @@ fn language() -> bool {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let ctx: Arc<Ctx> = Arc::new(Ctx {
                 tx: Mutex::new(None),
