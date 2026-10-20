@@ -1762,15 +1762,21 @@ fn list_jobs(app: &App) -> Result<serde_json::Value> {
     let mut stmt =
         db.prepare("SELECT id,url,filename,out_path,size,done,status,error FROM jobs ORDER BY id DESC LIMIT 200")?;
     let rows = stmt.query_map([], |r| {
+        let status: String = r.get(6)?;
+        let out_path: String = r.get(3)?;
+        // a finished job whose file/folder is gone (moved or deleted outside
+        // RDM) gets a badge instead of silently claiming "Done"
+        let missing = status == "completed" && !std::path::Path::new(&out_path).exists();
         Ok(json!({
             "id": r.get::<_, i64>(0)?,
             "url": r.get::<_, String>(1)?,
             "filename": r.get::<_, String>(2)?,
-            "out_path": r.get::<_, String>(3)?,
+            "out_path": out_path,
             "size": r.get::<_, Option<i64>>(4)?,
             "done": r.get::<_, i64>(5)?,
-            "status": r.get::<_, String>(6)?,
+            "status": status,
             "error": r.get::<_, Option<String>>(7)?,
+            "missing": missing,
         }))
     })?;
     let mut out = Vec::new();

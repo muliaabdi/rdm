@@ -151,6 +151,7 @@
   .st.failed { color: var(--red); background: rgba(224,104,92,.14); }
   .st.completed { color: var(--done); background: rgba(83,179,86,.13); }
   .st.cancelled { color: var(--dim); background: var(--track); }
+  .st.missing { color: var(--amber); background: rgba(217,164,65,.14); }
 
   .row > .pcol { display: flex; align-items: center; gap: 8px; }
   .cellbar {
@@ -549,7 +550,7 @@ const I18N = {
     empty_hint: "Grab links with the browser extension, or use Add URL above.",
     error_label: "Error", tt_lang: "Switch language",
     st_completed: "Done", st_failed: "Failed", st_paused: "Paused",
-    st_cancelled: "Cancelled", st_queued: "Queued",
+    st_cancelled: "Cancelled", st_queued: "Queued", st_missing: "Missing",
     fld_parallel: "Max parallel jobs", fld_notify: "Notify when done",
     del_title: "Delete download", del_hint: "Remove this job from the list.",
     del_files: "Also delete partial files", btn_delete: "Delete",
@@ -602,7 +603,7 @@ const I18N = {
     empty_hint: "Ambil tautan lewat ekstensi browser, atau Tambah URL di atas.",
     error_label: "Galat", tt_lang: "Ganti bahasa",
     st_completed: "Selesai", st_failed: "Gagal", st_paused: "Dijeda",
-    st_cancelled: "Dibatalkan", st_queued: "Diantrekan",
+    st_cancelled: "Dibatalkan", st_queued: "Diantrekan", st_missing: "Hilang",
     fld_parallel: "Maks job paralel", fld_notify: "Notifikasi saat selesai",
     del_title: "Hapus unduhan", del_hint: "Buang job ini dari daftar.",
     del_files: "Hapus juga berkas sebagian", btn_delete: "Hapus",
@@ -842,7 +843,7 @@ function rowHtml(j) {
     <div class="name" title="${tip}">${icoFor(j)}<span class="nm">${esc(j.filename)}</span></div>
     <div class="num dim sz">${j.size ? fmt(j.size) : "?"}</div>
     <div class="pcol"><div class="cellbar"><div class="fill" style="width:${w}%;background:${fillColor}"></div></div><span class="pct">${w.toFixed(0)}%</span></div>
-    <div class="st ${j.status}">${statusLabel(j)}</div>
+    <div class="st ${j.status}${j.missing ? " missing" : ""}">${statusLabel(j)}</div>
     <div class="num dim eta">${j.status === "running" ? fmtEta(etaOf(j)) : "—"}</div>
     <div class="num spd">${j.status === "running" ? fmtSpeed(j.speed) : "—"}</div>
   </div>`;
@@ -877,7 +878,7 @@ function renderRows() {
       el.querySelector(".fill").style.width = w + "%";
       el.querySelector(".pct").textContent = w.toFixed(0) + "%";
       const st = el.querySelector(".st");
-      st.className = "st " + j.status;
+      st.className = "st " + j.status + (j.missing ? " missing" : "");
       st.textContent = statusLabel(j);
       const szt = j.size ? fmt(j.size) : "?";
       const sz = el.querySelector(".sz");
@@ -995,7 +996,8 @@ function updateToolbar() {
 }
 function statusLabel(j) {
   const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
-  return j.status === "completed" ? t("st_completed") :
+  return j.missing ? t("st_missing") :
+    j.status === "completed" ? t("st_completed") :
     j.status === "failed" ? t("st_failed") :
     j.status === "paused" ? t("st_paused") :
     j.status === "cancelled" ? t("st_cancelled") :
@@ -1272,6 +1274,7 @@ function apply(v) {
   for (const k of ["filename", "out_path", "size", "done", "status", "error"]) {
     if (v[k] != null && j[k] !== v[k]) { j[k] = v[k]; if (k === "status") rebuild = true; }
   }
+  if (v.missing != null) j.missing = v.missing;
   if (v.segments) j.segs = v.segments;
   j.speed = j.status === "running" ? sampleSpeed(v.id, j.done) : (speeds.delete(v.id), 0);
   jobs.set(v.id, j);
