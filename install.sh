@@ -64,6 +64,8 @@ StartupWMClass=com.rdm.ui
 Categories=Network;FileTransfer;
 EOF
 update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 --noincremental 2>/dev/null || true
 
 echo
 echo "RDM installed:"
