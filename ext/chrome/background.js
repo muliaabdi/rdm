@@ -224,30 +224,50 @@ chrome.webRequest.onHeadersReceived.addListener(
 // Chrome often fires onCreated before the target filename is known
 // (google drive's extension-less download URLs, signed CDN links).
 // Park those and decide once onChanged reports the real filename.
-const pendingName = new Map(); // download id -> {url, referrer, timer}
+// State lives in storage.session: the MV3 worker may be torn down and
+// recreated between the two events, an in-memory Map would be lost.
+const PENDING_KEY = "rdmPendingNames"; // { [downloadId]: {url, referrer} }
 
-chrome.downloads.onChanged.addListener((delta) => {
-  const p = pendingName.get(delta.id);
-  if (!p) return;
-  if (delta.filename && delta.filename.current) {
-    pendingName.delete(delta.id);
-    clearTimeout(p.timer);
+async function pendingAll() {
+  const o = await chrome.storage.session.get(PENDING_KEY);
+  return o && o[PENDING_KEY] ? o[PENDING_KEY] : {};
+}
+
+async function pendingSet(id, entry) {
+  const all = await pendingAll();
+  all[id] = entry;
+  await chrome.storage.session.set({ [PENDING_KEY]: all });
+}
+
+async function pendingTake(id) {
+  const all = await pendingAll();
+  const entry = all[id];
+  if (entry) {
+    delete all[id];
+    await chrome.storage.session.set({ [PENDING_KEY]: all });
+  }
+  return entry;
+}
+
+chrome.downloads.onChanged.addListener(async (delta) => {
+  try {
+    if (!delta.filename || !delta.filename.current) {
+      if (delta.state && delta.state.current !== "in_progress") await pendingTake(delta.id);
+      return;
+    }
+    const p = await pendingTake(delta.id);
+    if (!p) return;
     const name = delta.filename.current.split(/[\\/]/).pop() || "";
     dlog(`resolved id=${delta.id} name="${name}"`);
     if (!extAllowed(name, p.url)) return; // not in the allow-list: keep it native
-    (async () => {
-      try {
-        await chrome.downloads.cancel(delta.id).catch(() => {});
-        await chrome.downloads.erase({ id: delta.id }).catch(() => {});
-        console.log("rdm: takeover (late name)", name);
-        await offer(p.url, name, p.referrer || "", true);
-      } catch (e) {
-        console.warn("rdm: late takeover failed", e);
-      }
-    })();
-  } else if (delta.state && delta.state.current !== "in_progress") {
-    pendingName.delete(delta.id); // finished/interrupted before a name arrived
-    clearTimeout(p.timer);
+    await freshSettings();
+    if (!intercept) return;
+    await chrome.downloads.cancel(delta.id).catch(() => {});
+    await chrome.downloads.erase({ id: delta.id }).catch(() => {});
+    console.log("rdm: takeover (late name)", name);
+    await offer(p.url, name, p.referrer || "", true);
+  } catch (e) {
+    console.warn("rdm: late takeover failed", e);
   }
 });
 
@@ -265,9 +285,8 @@ chrome.downloads.onCreated.addListener(async (item) => {
       dlog(`skip name="${name}" ext=${JSON.stringify(extOf(name, url))} allowed=${JSON.stringify(interceptExt)} url=${url.slice(0, 120)}`);
       // no extension anywhere yet (drive.usercontent.google.com & co):
       // wait for Chrome to resolve the filename, then decide
-      if (!extOf(name, url) && !pendingName.has(item.id)) {
-        const timer = setTimeout(() => pendingName.delete(item.id), 60000);
-        pendingName.set(item.id, { url, referrer: item.referrer || "", timer });
+      if (!extOf(name, url)) {
+        await pendingSet(item.id, { url, referrer: item.referrer || "" });
         dlog(`park id=${item.id} awaiting filename`);
       }
       return; // not in the RDM allow-list: let the browser handle it
