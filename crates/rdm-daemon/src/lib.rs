@@ -8,7 +8,7 @@
 //!   | {"t":"done",..} | {"t":"failed",..} | {"t":"cancelled",..} | {"t":"jobs",..}
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -1139,6 +1139,18 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
     Ok(())
 }
 
+/// May `path` be removed as a job's own folder? It must be strictly below
+/// `$HOME`, and neither the base download folder itself nor any directory
+/// containing it — page jobs store the BASE folder as out_path until a real
+/// filename arrives, and one unguarded delete erased a whole ~/Downloads.
+fn dir_delete_allowed(path: &Path, base: &Path) -> bool {
+    let Ok(home) = std::env::var("HOME") else {
+        return false;
+    };
+    let home = PathBuf::from(home);
+    path != home && path.starts_with(&home) && path != base && !base.starts_with(path)
+}
+
 fn delete_job(app: &Arc<App>, id: u64, files: bool) -> Result<()> {
     {
         let ctl = app.ctl.lock().unwrap();
@@ -1153,8 +1165,17 @@ fn delete_job(app: &Arc<App>, id: u64, files: bool) -> Result<()> {
                 if let Some(out) = out.filter(|p| !p.is_empty()) {
                     let path = PathBuf::from(&out);
                     if path.is_dir() {
-                        // gallery jobs point at their own folder
-                        let _ = std::fs::remove_dir_all(&path);
+                        // gallery jobs point at their own folder; the guard
+                        // below refuses the download base folder and anything
+                        // at or above it
+                        let base = base_dir(&settings_json());
+                        if dir_delete_allowed(&path, &base) {
+                            let _ = std::fs::remove_dir_all(&path);
+                        } else {
+                            tracing::warn!(
+                                "delete: refusing to remove folder {out:?} (base/home guard)"
+                            );
+                        }
                     } else {
                         let _ = std::fs::remove_file(format!("{out}.rdm-part.json"));
                         let _ = std::fs::remove_file(format!("{out}.rdm-hls.json"));
@@ -1875,4 +1896,27 @@ fn list_jobs(app: &App) -> Result<serde_json::Value> {
         }
     }
     Ok(serde_json::Value::Array(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn delete_guard_blocks_base_and_ancestors() {
+        let home = std::env::var("HOME").map(PathBuf::from).unwrap();
+        let base = home.join("Downloads");
+        // page job out_path == the base folder itself
+        assert!(!dir_delete_allowed(&base, &base));
+        // dir="~" collapses to $HOME
+        assert!(!dir_delete_allowed(&home, &base));
+        // filesystem root / anything outside $HOME
+        assert!(!dir_delete_allowed(Path::new("/"), &base));
+        assert!(!dir_delete_allowed(Path::new("/etc"), &base));
+        // a gallery job's own folder below base: allowed
+        assert!(dir_delete_allowed(&base.join("gallery-123"), &base));
+        // a category override folder elsewhere under $HOME: allowed
+        assert!(dir_delete_allowed(&home.join("Pictures").join("g"), &base));
+    }
 }
