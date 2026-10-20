@@ -1134,6 +1134,15 @@ listen("rdm", (ev) => {
       openConfirm(m);
       break;
     case "show": focusWindow(); break;
+    case "show-job":
+      // new background offer: open its detail pane in place; only raise the
+      // window when the user would otherwise miss it entirely (minimized)
+      apply({ id: m.id });
+      selected = m.id;
+      renderRows();
+      openDetails(m.id);
+      if (document.hidden) focusWindow();
+      break;
     case "tray-select": if (jobs.has(m.id)) { selected = m.id; renderRows(); } break;
     case "formats": if (window.__onFormats) window.__onFormats(m); break;
     case "error": if (window.__onFormats) { const f = window.__onFormats; window.__onFormats = null; f({ __err: m.error }); } else toast(trErr(m.error || "daemon error")); break;

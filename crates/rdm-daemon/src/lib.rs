@@ -727,7 +727,6 @@ fn ui_binary() -> Option<PathBuf> {
 }
 
 async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
-    bring_ui(&app);
     let id = app.next_id.fetch_add(1, Ordering::SeqCst);
     let spec = serde_json::to_string(&offer_json(&offer))?;
     let now = std::time::SystemTime::now()
@@ -765,11 +764,23 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
             }
         });
         if confirming {
-            // intercepted browser download: let the user confirm in the UI first
+            // intercepted browser download: the confirmation dialog must be
+            // seen, so raise (or launch) the UI for this one
+            bring_ui(&app);
             let _ = app.events.send(
                 json!({"t":"confirm","id":id,"filename":filename,"url":offer.url,"out_path":out_path}).to_string(),
             );
             return Ok(id);
+        }
+        // Background offers (video pill, context menu): open the job's detail
+        // pane in place — never raise/steal focus while the user is browsing.
+        // Only launch the UI when it is not running at all.
+        if ui_running() {
+            let _ = app
+                .events
+                .send(json!({"t":"show-job","id":id}).to_string());
+        } else {
+            bring_ui(&app);
         }
         RunnerSpec::Direct(job)
     };

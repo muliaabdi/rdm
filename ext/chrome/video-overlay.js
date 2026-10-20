@@ -295,14 +295,9 @@
     const lbl = btn.shadowRoot.querySelector("#__rdm_lbl");
     const mp3 = btn.shadowRoot.querySelector("#__rdm_mp3");
     if (lbl) {
-      if (pageModeNow) {
-        // keep the pill tiny on video pages: icon + "RDM"; the full text is the hover tooltip
-        lbl.textContent = "RDM";
-        btn.title = "Download this page video with RDM";
-      } else {
-        lbl.textContent = "Download with RDM";
-        btn.title = "";
-      }
+      // one label for both modes: direct files and page (yt-dlp) videos alike
+      lbl.textContent = "Download with RDM";
+      btn.title = pageModeNow ? "Pick a quality for this page video" : "";
     }
     if (mp3) mp3.style.display = pageModeNow ? "block" : "none";
     btn.style.opacity = "1";
