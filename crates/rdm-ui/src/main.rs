@@ -528,6 +528,45 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
         }
         let show_i = MenuItem::with_id(&app, "show", m_show, true, None::<&str>).ok();
         let quit_i = MenuItem::with_id(&app, "quit", m_quit, true, None::<&str>).ok();
+        // speed-limit quick toggle: writes through set-settings so the live
+        // limiter, the Settings UI and the extension all stay in sync
+        let kb = read_settings()["speed_limit"].as_u64().unwrap_or(0);
+        let (m_lim, m_unlim) = if en {
+            ("Speed limit", "Unlimited")
+        } else {
+            ("Batas kecepatan", "Tanpa batas")
+        };
+        let opts: [(u64, String); 5] = [
+            (0, m_unlim.to_string()),
+            (512, "512 KiB/s".into()),
+            (1024, "1 MiB/s".into()),
+            (2048, "2 MiB/s".into()),
+            (4096, "4 MiB/s".into()),
+        ];
+        let mut checks: Vec<Box<dyn tauri::menu::IsMenuItem<_>>> = Vec::new();
+        for (k, label) in opts {
+            if let Ok(c) = tauri::menu::CheckMenuItem::with_id(
+                &app,
+                format!("spdl-{k}"),
+                label,
+                true,
+                kb == k,
+                None::<&str>,
+            ) {
+                checks.push(Box::new(c));
+            }
+        }
+        let chk_refs: Vec<&dyn tauri::menu::IsMenuItem<_>> =
+            checks.iter().map(|b| b.as_ref()).collect();
+        if let Ok(sub) = tauri::menu::Submenu::with_items(&app, m_lim, true, &chk_refs) {
+            items.push(Box::new(sub));
+            if let Some(s) = PredefinedMenuItem::separator(&app)
+                .ok()
+                .map(|i| Box::new(i) as Box<dyn tauri::menu::IsMenuItem<_>>)
+            {
+                items.push(s);
+            }
+        }
         if let (Some(s), Some(q)) = (show_i, quit_i) {
             items.push(Box::new(s));
             items.push(Box::new(q));
@@ -587,6 +626,15 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 // job line: only the compact detail popup, never the full app
                 if let Ok(n) = jid.parse::<u64>() {
                     show_detail_window(app, n);
+                }
+                return;
+            }
+            if let Some(kb) = id.strip_prefix("spdl-") {
+                if let Ok(k) = kb.parse::<u64>() {
+                    let mut s = read_settings();
+                    s["speed_limit"] = json!(k);
+                    let ctx = app.state::<Arc<Ctx>>();
+                    let _ = send_line(&ctx, json!({"t":"set-settings","v":s}).to_string());
                 }
                 return;
             }
