@@ -265,7 +265,7 @@
   #dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 11px; }
   #dlg .fld label { width: 112px; flex: none; color: var(--txt2); line-height: 1.25; }
   /* tall sub-blocks (folder grid, type grid): label aligns with first row */
-  #dlg .fld:has(> .cats) label, #dlg .fld:has(> .ftypes) label { align-self: start; padding-top: 8px; }
+  #dlg .fld:has(> .ftypes) label { align-self: start; padding-top: 8px; }
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
   #dlg .fld input.narrow { flex: 0 0 108px; }
   #dlg .fld input.chk { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #2b6cff; }
@@ -277,9 +277,14 @@
   #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: var(--txt2); cursor: pointer; }
   #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
   #dlg .ftypes.all .fchk:nth-child(n+2) { opacity: .4; }
-  #dlg .cats { flex: 1; display: grid; grid-template-columns: 96px 1fr; gap: 6px 8px; align-items: center; }
-  #dlg .cats span { color: var(--txt2); font-size: 12px; }
-  #dlg .cats input { margin: 0; min-width: 0; }
+  /* category subfolders: compact 2-col cards under the base-dir field */
+  #dlg .catwrap { margin: 2px 0 12px; }
+  #dlg .cathint { font-size: 11px; color: var(--dim); margin: 0 0 8px; line-height: 1.35; }
+  #dlg .catgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+  #dlg .cfld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  #dlg .cfld span { font-size: 11px; color: var(--txt2); display: flex; align-items: center; gap: 6px; }
+  #dlg .cfld span i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  #dlg .cfld input { margin: 0; padding: 6px 9px; }
 
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -439,7 +444,7 @@ const I18N = {
     opt_system: "System", opt_light: "Light", opt_dark: "Dark", btn_save: "Save",
     sec_downloads: "Downloads", sec_takeover: "Browser takeover", sec_interface: "Interface",
     fld_speed: "Speed limit", ph_speed: "0 = unlimited",
-    fld_cats: "Category folders", ph_cats: "empty = Folder",
+    fld_cats: "Category folders", hint_cats: "Subfolder per category. A name becomes a folder under the main dir; an absolute path puts it elsewhere; empty = main dir.",
     fld_ytdlp: "Update yt-dlp automatically",
     err_url_http: "URL must be http(s)",
     err_not_connected: "not connected to the daemon",
@@ -488,7 +493,7 @@ const I18N = {
     opt_system: "Sistem", opt_light: "Terang", opt_dark: "Gelap", btn_save: "Simpan",
     sec_downloads: "Unduhan", sec_takeover: "Pengambilalihan browser", sec_interface: "Antarmuka",
     fld_speed: "Batas kecepatan", ph_speed: "0 = tanpa batas",
-    fld_cats: "Folder kategori", ph_cats: "kosong = Folder",
+    fld_cats: "Folder kategori", hint_cats: "Subfolder per kategori. Nama jadi folder di bawah folder utama; path absolut untuk lokasi lain; kosong = folder utama.",
     fld_ytdlp: "Perbarui yt-dlp otomatis",
     err_url_http: "URL harus http(s)",
     err_not_connected: "belum terhubung ke daemon",
@@ -1290,10 +1295,16 @@ const FTYPES = [
 const EXT2CAT = new Map(FTYPES.flatMap(([id, , str]) => str.split(" ").map((x) => [x, id])));
 // folder-category keys must match rdm_core::category_of (settings.categories);
 // distinct from the sidebar CATS above (list filters)
+// folder-category keys must match rdm_core::category_of (settings.categories);
+// distinct from the sidebar CATS above (list filters). [id, i18n key, dot color]
 const FOLDER_CATS = [
-  ["images", "ft_images"], ["videos", "ft_videos"], ["audio", "ft_audio"],
-  ["documents", "ft_docs"], ["apps", "ft_apps"], ["archives", "ft_arch"],
-  ["others", "ft_others"],
+  ["videos", "ft_videos", "#d05050"],
+  ["audio", "ft_audio", "#b05bb0"],
+  ["images", "ft_images", "#3f9dbd"],
+  ["documents", "ft_docs", "#5a7fbf"],
+  ["apps", "ft_apps", "#5d5d5d"],
+  ["archives", "ft_arch", "#c9962e"],
+  ["others", "ft_others", "#8b8e93"],
 ];
 
 $("b-options").onclick = async () => {
@@ -1309,8 +1320,10 @@ $("b-options").onclick = async () => {
     <div class="dlgbody">
     <div class="sec">${t("sec_downloads")}</div>
     <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
-    <div class="fld"><label>${t("fld_cats")}</label>
-      <div class="cats">${FOLDER_CATS.map(([id, key]) => `<span>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t("ph_cats"))}" spellcheck="false" autocomplete="off">`).join("")}</div></div>
+    <div class="catwrap">
+      <div class="cathint">${t("hint_cats")}</div>
+      <div class="catgrid">${FOLDER_CATS.map(([id, key, col]) => `<label class="cfld"><span><i style="background:${col}"></i>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t(key))}" spellcheck="false" autocomplete="off"></label>`).join("")}</div>
+    </div>
     <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
     <div class="fld"><label>${t("fld_parallel")}</label><input id="o-par" class="narrow" type="number" min="1" max="16" value="${s.max_parallel || 3}"></div>
     <div class="fld"><label>${t("fld_speed")}</label><input id="o-speed" class="narrow" type="number" min="0" step="64" value="${s.speed_limit || 0}"><span class="dim">KiB/s</span></div>
