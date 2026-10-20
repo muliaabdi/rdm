@@ -34,6 +34,10 @@ function dlog(msg) {
   try { ensurePort().postMessage({ t: "log", msg }); } catch {}
 }
 
+chrome.runtime.onInstalled.addListener(() => {
+  dlog(`sw installed v${chrome.runtime.getManifest().version}`);
+});
+
 chrome.storage.local.get({ intercept: true, interceptExt: null }, (s) => {
   intercept = !!s.intercept;
   interceptExt = Array.isArray(s.interceptExt) ? s.interceptExt : null;
@@ -252,13 +256,16 @@ async function pendingTake(id) {
 chrome.downloads.onChanged.addListener(async (delta) => {
   try {
     if (!delta.filename || !delta.filename.current) {
-      if (delta.state && delta.state.current !== "in_progress") await pendingTake(delta.id);
+      if (delta.state && delta.state.current !== "in_progress") {
+        dlog(`state id=${delta.id} -> ${delta.state.current} (parked=${!!(await pendingAll())[delta.id]})`);
+        await pendingTake(delta.id);
+      }
       return;
     }
     const p = await pendingTake(delta.id);
+    dlog(`onChanged id=${delta.id} file="${delta.filename.current.split(/[\\/]/).pop()}" parked=${!!p}`);
     if (!p) return;
     const name = delta.filename.current.split(/[\\/]/).pop() || "";
-    dlog(`resolved id=${delta.id} name="${name}"`);
     if (!extAllowed(name, p.url)) return; // not in the allow-list: keep it native
     await freshSettings();
     if (!intercept) return;
@@ -267,6 +274,7 @@ chrome.downloads.onChanged.addListener(async (delta) => {
     console.log("rdm: takeover (late name)", name);
     await offer(p.url, name, p.referrer || "", true);
   } catch (e) {
+    dlog(`onChanged error: ${e && e.message}`);
     console.warn("rdm: late takeover failed", e);
   }
 });
