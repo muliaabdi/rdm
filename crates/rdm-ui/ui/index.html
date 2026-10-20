@@ -152,6 +152,7 @@
   .st.completed { color: var(--done); background: rgba(83,179,86,.13); }
   .st.cancelled { color: var(--dim); background: var(--track); }
   .st.missing { color: var(--amber); background: rgba(217,164,65,.14); }
+  .st.retrying { color: #4a7bd0; background: rgba(74,123,208,.14); }
 
   .row > .pcol { display: flex; align-items: center; gap: 8px; }
   .cellbar {
@@ -567,6 +568,7 @@ const I18N = {
     error_label: "Error", tt_lang: "Switch language",
     st_completed: "Done", st_failed: "Failed", st_paused: "Paused",
     st_cancelled: "Cancelled", st_queued: "Queued", st_missing: "Missing",
+    st_retrying: "Retry {n}/{m}",
     fld_parallel: "Max parallel jobs", fld_notify: "Notify when done",
     fld_clipboard: "Offer to download copied links",
     del_title: "Delete download", del_hint: "Remove this job from the list.",
@@ -621,6 +623,7 @@ const I18N = {
     error_label: "Galat", tt_lang: "Ganti bahasa",
     st_completed: "Selesai", st_failed: "Gagal", st_paused: "Dijeda",
     st_cancelled: "Dibatalkan", st_queued: "Diantrekan", st_missing: "Hilang",
+    st_retrying: "Ulang {n}/{m}",
     fld_parallel: "Maks job paralel", fld_notify: "Notifikasi saat selesai",
     fld_clipboard: "Tawarkan unduhan tautan yang disalin",
     del_title: "Hapus unduhan", del_hint: "Buang job ini dari daftar.",
@@ -1015,6 +1018,7 @@ function updateToolbar() {
 function statusLabel(j) {
   const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
   return j.missing ? t("st_missing") :
+    j.status === "retrying" ? t("st_retrying", { n: j.attempt || 1, m: j.attempts || 3 }) :
     j.status === "completed" ? t("st_completed") :
     j.status === "failed" ? t("st_failed") :
     j.status === "paused" ? t("st_paused") :
@@ -1289,7 +1293,7 @@ function paintGraph(cv, samples) {
 function apply(v) {
   const j = jobs.get(v.id) || { id: v.id, filename: "?", done: 0, size: null, status: "running", speed: 0 };
   let rebuild = false;
-  for (const k of ["filename", "out_path", "size", "done", "status", "error", "url"]) {
+  for (const k of ["filename", "out_path", "size", "done", "status", "error", "url", "attempt", "attempts"]) {
     if (v[k] != null && j[k] !== v[k]) { j[k] = v[k]; if (k === "status") rebuild = true; }
   }
   if (v.missing != null) j.missing = v.missing;
@@ -1339,7 +1343,7 @@ listen("rdm", (ev) => {
     case "formats": if (window.__onFormats) window.__onFormats(m); break;
     case "error": if (window.__onFormats) { const f = window.__onFormats; window.__onFormats = null; f({ __err: m.error }); } else toast(trErr(m.error || "daemon error")); break;
     case "started": apply({ id: m.id, size: m.size }); break;
-    case "status": apply({ id: m.id, status: m.status }); renderRows(); break;
+    case "status": apply({ id: m.id, status: m.status, attempt: m.attempt, attempts: m.max }); renderRows(); break;
     case "progress": apply({ id: m.id, done: m.done, size: m.size, status: "running" }); break;
     case "detail":
       if (!detailSeen) { detailSeen = true; diag("detail segments received"); }

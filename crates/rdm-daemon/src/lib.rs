@@ -216,7 +216,7 @@ impl App {
         let db = self.db.lock().ok()?;
         db.query_row(
             "SELECT id FROM jobs WHERE url=?1 AND status IN \
-             ('running','queued','resolving','confirming','paused') \
+             ('running','queued','resolving','confirming','paused','retrying') \
              ORDER BY id DESC LIMIT 1",
             [url],
             |r| r.get::<_, i64>(0),
@@ -1679,18 +1679,85 @@ async fn run_gallery(
     app.ctl.lock().unwrap().remove(&id);
 }
 
+/// Distinguish a flaky-network failure (worth another attempt) from a
+/// definitive answer (403/404 and friends are never retried).
+fn retryable_error(e: &str) -> bool {
+    if e.starts_with("request:") || e.contains("short read") {
+        return true;
+    }
+    e.split("HTTP ")
+        .nth(1)
+        .and_then(|s| s.split([' ', '@']).next())
+        .and_then(|s| s.parse::<u16>().ok())
+        .map(|code| matches!(code, 408 | 425 | 429 | 500..=599))
+        .unwrap_or(false)
+}
+
+const AUTO_RETRY_MAX: u32 = 3;
+
 async fn run_direct(app: Arc<App>, id: u64, job: Job, kill_rx: watch::Receiver<bool>) {
-    let (tx, mut rx) = mpsc::channel::<Progress>(512);
-    let handle = tokio::spawn(download(job, tx, kill_rx));
-    let mut last = Instant::now() - Duration::from_secs(10);
+    let mut attempt = 0u32;
     let mut done = 0u64;
     let mut size: Option<u64> = None;
+    loop {
+        let retry_err =
+            run_direct_attempt(&app, id, &job, &kill_rx, attempt, &mut done, &mut size).await;
+        let Some(err) = retry_err else {
+            break;
+        };
+        attempt += 1;
+        // transient failure: pause, then restart the engine — it resumes from
+        // the saved partial state instead of restarting from byte zero
+        app.db_update(id, done, "retrying", Some(&err), size);
+        let _ = app.events.send(
+            json!({"t":"status","id":id,"status":"retrying","attempt":attempt,"max":AUTO_RETRY_MAX,"error":err}).to_string(),
+        );
+        let wait = Duration::from_secs(5 * 3u64.pow(attempt - 1)); // 5s, 15s, 45s
+        let mut k = kill_rx.clone();
+        let aborted = tokio::select! {
+            _ = tokio::time::sleep(wait) => false,
+            _ = k.changed() => true,
+        };
+        if aborted {
+            let intent = app
+                .ctl
+                .lock()
+                .unwrap()
+                .get(&id)
+                .map(|c| c.intent)
+                .unwrap_or("cancelled");
+            let _ = app
+                .events
+                .send(json!({"t":intent,"id":id,"done":done}).to_string());
+            app.db_update(id, done, intent, None, size);
+            break;
+        }
+    }
+    app.ctl.lock().unwrap().remove(&id);
+}
+
+/// One engine run. Returns Some(transient error) when the whole download
+/// failed but is worth retrying; None means the job reached any terminal
+/// state (completed/failed/cancelled) and events were already sent.
+async fn run_direct_attempt(
+    app: &Arc<App>,
+    id: u64,
+    job: &Job,
+    kill_rx: &watch::Receiver<bool>,
+    attempt: u32,
+    done: &mut u64,
+    size: &mut Option<u64>,
+) -> Option<String> {
+    let (tx, mut rx) = mpsc::channel::<Progress>(512);
+    let handle = tokio::spawn(download(job.clone(), tx, kill_rx.clone()));
+    let mut last = Instant::now() - Duration::from_secs(10);
+    let mut transient: Option<String> = None;
     while let Some(p) = rx.recv().await {
         let mut line: Option<String> = None;
         let mut terminal: Option<(&'static str, Option<String>)> = None;
         match &p {
             Progress::Started { size: s, .. } => {
-                size = *s;
+                *size = *s;
                 line = Some(json!({"t":"started","id":id,"size":s}).to_string());
             }
             Progress::Detail { segments } => {
@@ -1701,10 +1768,10 @@ async fn run_direct(app: Arc<App>, id: u64, job: Job, kill_rx: watch::Receiver<b
                 size: s,
                 ..
             } => {
-                done = *total_done;
-                size = *s;
+                *done = *total_done;
+                *size = *s;
                 if last.elapsed() >= Duration::from_millis(100) {
-                    app.note_live(id, done, size);
+                    app.note_live(id, *done, *size);
                     line =
                         Some(json!({"t":"progress","id":id,"done":done,"size":size}).to_string());
                     last = Instant::now();
@@ -1721,17 +1788,21 @@ async fn run_direct(app: Arc<App>, id: u64, job: Job, kill_rx: watch::Receiver<b
                 );
             }
             Progress::Completed { size: s, sha256 } => {
-                done = *s;
-                size = Some(*s);
+                *done = *s;
+                *size = Some(*s);
                 line = Some(json!({"t":"done","id":id,"size":s,"sha256":sha256}).to_string());
                 terminal = Some(("completed", None));
             }
             Progress::Failed { error } => {
-                line = Some(json!({"t":"failed","id":id,"error":error}).to_string());
-                terminal = Some(("failed", Some(error.clone())));
+                if attempt < AUTO_RETRY_MAX && retryable_error(error) {
+                    transient = Some(error.clone());
+                } else {
+                    line = Some(json!({"t":"failed","id":id,"error":error}).to_string());
+                    terminal = Some(("failed", Some(error.clone())));
+                }
             }
             Progress::Cancelled { total_done } => {
-                done = *total_done;
+                *done = *total_done;
                 let intent = app
                     .ctl
                     .lock()
@@ -1748,13 +1819,16 @@ async fn run_direct(app: Arc<App>, id: u64, job: Job, kill_rx: watch::Receiver<b
             let _ = app.events.send(s);
         }
         if let Some((status, error)) = terminal {
-            app.db_update(id, done, status, error.as_deref(), size);
+            app.db_update(id, *done, status, error.as_deref(), *size);
         } else if last.elapsed() >= Duration::from_secs(1) {
-            app.db_update(id, done, "running", None, size);
+            app.db_update(id, *done, "running", None, *size);
+        }
+        if transient.is_some() {
+            break;
         }
     }
     let _ = handle.await;
-    app.ctl.lock().unwrap().remove(&id);
+    transient
 }
 
 fn list_jobs(app: &App) -> Result<serde_json::Value> {
