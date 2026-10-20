@@ -8,6 +8,26 @@ const SEEN_TTL = 10 * 60 * 1000;
 let port = null;
 let intercept = true; // takeover: cancel native downloads, route to RDM
 let interceptExt = null; // null/[] = every type; array = extension allow-list
+let gotSettings = false; // a settings frame arrived on this port
+let settingsWaiters = [];
+
+function wakeSettings() {
+  gotSettings = true;
+  for (const r of settingsWaiters) r();
+  settingsWaiters = [];
+}
+
+/// The MV3 service worker sleeps with no event; the native port dies quietly
+/// and the cached allow-list goes stale. Before deciding a takeover, make sure
+/// the daemon has greeted us with fresh settings (best effort, 800 ms cap).
+async function freshSettings() {
+  if (gotSettings) return;
+  ensurePort();
+  await new Promise((res) => {
+    settingsWaiters.push(res);
+    setTimeout(res, 800);
+  });
+}
 
 // diagnostics -> daemon journal (journalctl --user -u rdm-daemon -t ext)
 function dlog(msg) {
@@ -51,11 +71,13 @@ function ensurePort() {
           interceptExt = v;
           chrome.storage.local.set({ interceptExt: v });
         }
+        wakeSettings();
       }
     });
     port.onDisconnect.addListener(() => {
       if (chrome.runtime.lastError) console.warn("rdm: host disconnect:", chrome.runtime.lastError.message);
       port = null;
+      gotSettings = false; // next decision must re-greet the daemon
     });
   }
   return port;
@@ -232,6 +254,7 @@ chrome.downloads.onChanged.addListener((delta) => {
 chrome.downloads.onCreated.addListener(async (item) => {
   try {
     if (!intercept) return;
+    await freshSettings(); // stale allow-list guard (SW slept, port died)
     if (item.state === "complete") return; // finished before we saw it
     const url = item.finalUrl || item.url;
     if (!/^https?:/i.test(url)) return;
