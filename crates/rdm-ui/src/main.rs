@@ -274,12 +274,33 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
 }
 
 #[tauri::command]
-fn job_action(ctx: State<'_, Arc<Ctx>>, action: String, id: u64) -> Result<(), String> {
+fn job_action(ctx: State<'_, Arc<Ctx>>, action: String, id: u64, files: Option<bool>) -> Result<(), String> {
     const ALLOWED: [&str; 6] = ["pause", "resume", "cancel", "restart", "delete", "list"];
     if !ALLOWED.contains(&action.as_str()) {
         return Err(format!("unknown action: {action}"));
     }
-    send_line(&ctx, json!({"t":action,"id":id}).to_string())
+    send_line(&ctx, json!({"t":action,"id":id,"files":files.unwrap_or(true)}).to_string())
+}
+
+/// Desktop notification (Linux: notify-send) for finished downloads.
+#[tauri::command]
+fn notify(title: String, body: String) -> Result<(), String> {
+    let s = read_settings();
+    if s["notify"].as_bool() == Some(false) {
+        return Ok(());
+    }
+    let status = std::process::Command::new("notify-send")
+        .arg("-a")
+        .arg("RDM")
+        .arg("--")
+        .arg(&title)
+        .arg(&body)
+        .status();
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("notify-send exited {s}")),
+        Err(e) => Err(format!("notify-send: {e}")),
+    }
 }
 
 #[tauri::command]
@@ -399,6 +420,7 @@ fn main() {
             get_autostart,
             set_autostart,
             job_action,
+            notify,
             diag
         ])
         .run(tauri::generate_context!())

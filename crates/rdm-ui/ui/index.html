@@ -111,6 +111,7 @@
   .st.running { color: var(--green); }
   .st.confirming, .st.resolving { color: var(--dim); }
   .st.paused { color: var(--amber); }
+  .st.queued { color: #4a7bd0; }
   .st.failed { color: var(--red); }
   .st.completed { color: #0a5d0e; }
 
@@ -231,6 +232,9 @@
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
   #dlg .fld input.narrow { flex: 0 0 108px; }
   #dlg .fld input.chk { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #2b6cff; }
+  /* checkbox + inline caption inside a field row (e.g. delete confirmation) */
+  #dlg .fld > label.fchk { width: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: 400; color: #3c4046; cursor: pointer; }
+  #dlg .fld > label.fchk input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #2b6cff; }
   #dlg .ftypes { flex: 1; display: flex; flex-wrap: wrap; gap: 7px 4px; }
   #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: #3c4046; cursor: pointer; }
   #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
@@ -346,6 +350,9 @@ const I18N = {
     error_label: "Error", tt_lang: "Switch language",
     st_completed: "Done", st_failed: "Failed", st_paused: "Paused",
     st_cancelled: "Cancelled", st_queued: "Queued",
+    fld_parallel: "Max parallel jobs", fld_notify: "Notify when done",
+    del_title: "Delete download", del_hint: "Remove this job from the list.",
+    del_files: "Also delete partial files", btn_delete: "Delete",
     items_fmt: "{n} items · {m} active", total_fmt: "{s} total",
     u_h: "h", u_m: "m", u_s: "s",
     dlg_add_title: "Add download URL",
@@ -386,7 +393,10 @@ const I18N = {
     empty_hint: "Ambil tautan lewat ekstensi browser, atau Tambah URL di atas.",
     error_label: "Galat", tt_lang: "Ganti bahasa",
     st_completed: "Selesai", st_failed: "Gagal", st_paused: "Dijeda",
-    st_cancelled: "Dibatalkan", st_queued: "Antre",
+    st_cancelled: "Dibatalkan", st_queued: "Diantrekan",
+    fld_parallel: "Maks job paralel", fld_notify: "Notifikasi saat selesai",
+    del_title: "Hapus unduhan", del_hint: "Buang job ini dari daftar.",
+    del_files: "Hapus juga berkas sebagian", btn_delete: "Hapus",
     items_fmt: "{n} item · {m} aktif", total_fmt: "{s} total",
     u_h: "j", u_m: "m", u_s: "s",
     dlg_add_title: "Tambah URL unduhan",
@@ -696,7 +706,7 @@ function openCtx(id, x, y) {
   if (!j) return;
   ctxId = id;
   const running = j.status === "running";
-  const canResume = ["paused", "failed", "cancelled"].includes(j.status);
+  const canResume = ["paused", "failed", "cancelled", "queued"].includes(j.status);
   const items = [
     { ic: "details", label: t("details"), en: true,
       fn: (i) => openDetails(i) },
@@ -710,7 +720,7 @@ function openCtx(id, x, y) {
       : { ic: "resume", label: t("resume"), en: false, fn: () => {} },
     "sep",
     { ic: "delete", label: t("delete"), en: true,
-      fn: (i) => invoke("job_action", { action: "delete", id: i }).catch((e) => toast(trErr(e))) },
+      fn: (i) => confirmDelete(i) },
   ];
   const html = items.map((it) => it === "sep"
     ? '<div class="sep"></div>'
@@ -736,7 +746,7 @@ window.addEventListener("resize", closeCtx);
 window.addEventListener("blur", () => closeCtx());
 function updateToolbar() {
   const j = jobs.get(selected);
-  $("b-resume").toggleAttribute("disabled", !(j && ["paused", "failed", "cancelled", "confirming"].includes(j.status)));
+  $("b-resume").toggleAttribute("disabled", !(j && ["paused", "failed", "cancelled", "confirming", "queued"].includes(j.status)));
   $("b-stop").toggleAttribute("disabled", !(j && j.status === "running"));
   $("b-restart").toggleAttribute("disabled", !(j && j.status !== "running"));
   $("b-delete").toggleAttribute("disabled", !j);
@@ -754,6 +764,34 @@ function statusLabel(j) {
 }
 
 /* ---------- takeover confirmation (intercepted browser downloads) ---------- */
+/* ---------- delete confirmation (keeps or removes partial files) ---------- */
+function notifyDone(j) {
+  if (!j) return;
+  invoke("notify", { title: t("st_completed"), body: j.filename || "#" + j.id }).catch(() => {});
+}
+function notifyFail(j, err) {
+  if (!j) return;
+  invoke("notify", { title: t("st_failed"), body: (j.filename || "#" + j.id) + (err ? " — " + err : "") }).catch(() => {});
+}
+function confirmDelete(id) {
+  const j = jobs.get(id);
+  const partial = j && j.status !== "completed" && j.status !== "confirming";
+  openModal(`<h3>${t("del_title")}</h3>
+    <div class="dt-head"><div class="dt-name" title="${esc(j?.filename || "")}">${esc(j?.filename || "?")}</div></div>
+    <div class="mhint">${t("del_hint")}</div>
+    ${partial ? `<div class="fld"><label>&nbsp;</label><label class="fchk"><input type="checkbox" id="dl-files" checked><span>${t("del_files")}</span></label></div>` : ""}
+    <div class="btns">
+      <button id="dl-cancel">${t("btn_cancel")}</button>
+      <button id="dl-ok" class="pri">${t("btn_delete")}</button>
+    </div>`);
+  $("dl-cancel").onclick = closeModal;
+  $("dl-ok").onclick = () => {
+    const files = partial && !!$("dl-files")?.checked;
+    invoke("job_action", { action: "delete", id, files }).catch((e) => toast(trErr(e)));
+    closeModal();
+  };
+}
+
 function openConfirm(m) {
   openModal(`<h3>${t("confirm_title")}</h3>
     <div class="dt-head"><div class="dt-name" title="${esc(m.filename || "")}">${esc(m.filename || "?")}</div></div>
@@ -994,8 +1032,8 @@ listen("rdm", (ev) => {
       if (!detailSeen) { detailSeen = true; diag("detail segments received"); }
       apply({ id: m.id, segments: m.segments, status: "running" });
       break;
-    case "done": apply({ id: m.id, done: m.size, size: m.size, status: "completed" }); break;
-    case "failed": apply({ id: m.id, status: "failed", error: m.error }); break;
+    case "done": apply({ id: m.id, done: m.size, size: m.size, status: "completed" }); notifyDone(jobs.get(m.id)); break;
+    case "failed": apply({ id: m.id, status: "failed", error: m.error }); notifyFail(jobs.get(m.id), m.error); break;
     case "paused": apply({ id: m.id, status: "paused" }); break;
     case "cancelled": apply({ id: m.id, status: "cancelled" }); break;
     case "deleted": jobs.delete(m.id); speeds.delete(m.id); segPrev.delete(m.id); jobHist.delete(m.id); if (selected === m.id) selected = null;
@@ -1127,7 +1165,7 @@ $("b-add").onclick = () => {
 
 $("b-resume").onclick = () => selected && invoke("job_action", { action: "resume", id: selected }).catch((e) => toast(trErr(e)));
 $("b-stop").onclick = () => selected && invoke("job_action", { action: "pause", id: selected }).catch((e) => toast(trErr(e)));
-$("b-delete").onclick = () => selected && invoke("job_action", { action: "delete", id: selected }).catch((e) => toast(trErr(e)));
+$("b-delete").onclick = () => selected && confirmDelete(selected);
 $("b-restart").onclick = () => selected && invoke("job_action", { action: "restart", id: selected }).catch((e) => toast(trErr(e)));
 // Details opens by double-click, Enter or the row context menu
 $("rows").addEventListener("keydown", (e) => e.key === "Enter" && document.activeElement.classList.contains("row") && openDetails(+document.activeElement.dataset.id));
@@ -1153,6 +1191,7 @@ $("b-options").onclick = async () => {
   openModal(`<h3>${t("dlg_settings_title")}</h3>
     <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
     <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
+    <div class="fld"><label>${t("fld_parallel")}</label><input id="o-par" class="narrow" type="number" min="1" max="16" value="${s.max_parallel || 3}"></div>
     <div class="fld"><label>${t("fld_ftype")}</label>
       <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
         <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
@@ -1162,7 +1201,8 @@ $("b-options").onclick = async () => {
     <div class="fld"><label>${t("fld_lang")}</label><select id="o-lang">
       <option value="en"${lang === "en" ? " selected" : ""}>English</option>
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
-    <div class="fld"><label>${t("fld_autostart")}</label><input id="o-auto" class="chk" type="checkbox"${auto ? " checked" : ""}></div>
+    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-auto" type="checkbox"${auto ? " checked" : ""}><span>${t("fld_autostart")}</span></label></div>
+    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}><span>${t("fld_notify")}</span></label></div>
     <div class="btns"><button id="o-cancel">${t("btn_cancel")}</button><button id="o-ok" class="pri">${t("btn_save")}</button></div>`);
   $("o-cancel").onclick = closeModal;
   $("ft-all").onchange = () => {
@@ -1183,7 +1223,9 @@ $("b-options").onclick = async () => {
     if (!$("ft-all").checked && ints.length === 0) toast(t("ft_empty_all"));
     const auto = $("o-auto").checked;
     await invoke("set_settings", {
-      v: { dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8, lang: next, intercept_ext: ints, autostart: auto },
+      v: { dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8,
+           max_parallel: Math.min(16, Math.max(1, Number($("o-par").value) || 3)),
+           lang: next, intercept_ext: ints, autostart: auto, notify: $("o-notify").checked },
     });
     await invoke("set_autostart", { enabled: auto }).catch((e) => toast(trErr(e)));
     closeModal();

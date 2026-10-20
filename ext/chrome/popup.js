@@ -28,14 +28,30 @@ function render() {
         j.status === "failed" ? "failed" :
         j.status === "cancelled" ? "cancelled" :
         j.status === "running" ? `${fmt(j.done)} / ${fmt(j.size)} · ${pct}%` : j.status;
+      // per-row controls: pause while running, resume for anything idle
+      const act =
+        j.status === "running" || j.status === "resolving" || j.status === "confirming"
+          ? `<button class="act" data-a="pause" data-id="${j.id}" title="pause">❚❚</button>`
+          : ["paused", "failed", "cancelled", "queued"].includes(j.status)
+            ? `<button class="act" data-a="resume" data-id="${j.id}" title="resume">▶</button>`
+            : "";
+      const del = j.status === "completed" || j.status === "failed" || j.status === "cancelled"
+        ? `<button class="act dim" data-a="delete" data-id="${j.id}" title="delete">✕</button>`
+        : "";
       return `<div class="job ${cls}">
         <div class="row"><span class="name" title="${esc(j.filename)}">${esc(j.filename)}</span><span class="pct">${pct}%</span></div>
         <div class="bar"><i style="width:${pct}%"></i></div>
-        <div class="st">${label}${j.error ? ` · <span class="err">${esc(j.error)}</span>` : ""}</div>
+        <div class="st"><span class="lab">${label}${j.error ? ` · <span class="err">${esc(j.error)}</span>` : ""}</span><span class="btn">${act}${del}</span></div>
       </div>`;
     })
     .join("");
   box.innerHTML = rows;
+  for (const b of box.querySelectorAll("button.act")) {
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      if (port) port.postMessage({ t: b.dataset.a, id: Number(b.dataset.id), files: true });
+    };
+  }
 }
 
 function esc(s) {
@@ -67,6 +83,9 @@ function connect() {
       case "done": apply({ id: m.id, done: m.size, size: m.size, status: "completed" }); break;
       case "failed": apply({ id: m.id, status: "failed", error: m.error }); break;
       case "cancelled": apply({ id: m.id, status: "cancelled" }); break;
+      case "paused": apply({ id: m.id, status: "paused" }); break;
+      case "status": apply({ id: m.id, status: m.status }); break;
+      case "deleted": jobs.delete(m.id); render(); break;
     }
   });
   port.onDisconnect.addListener(() => {

@@ -147,6 +147,17 @@ impl App {
             .ok()
             .flatten()
     }
+
+    /// (status, out_path) of a job row, used by delete cleanup.
+    fn db_job_row(&self, id: u64) -> Option<(String, Option<String>)> {
+        let db = self.db.lock().ok()?;
+        db.query_row(
+            "SELECT status, out_path FROM jobs WHERE id=?1",
+            [id as i64],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
+        )
+        .ok()
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -191,6 +202,15 @@ pub async fn run_at(path: PathBuf, db_path: PathBuf) -> Result<()> {
     }
     tracing::info!("listening at {}", path.display());
     let app = Arc::new(App::open(db_path)?);
+    // a previous daemon may have died mid-job: nothing is running now, and a
+    // stale `running`/`resolving` row would look hung forever
+    app.db_exec(|db| {
+        db.execute(
+            "UPDATE jobs SET status='paused' WHERE status IN ('running','resolving')",
+            [],
+        )?;
+        Ok(())
+    });
     loop {
         let (stream, _) = listener.accept().await?;
         let app = app.clone();
@@ -296,7 +316,9 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
         }
         Some("delete") => {
             let id = v["id"].as_u64().context("id required")?;
-            delete_job(&app, id)?;
+            let files = v["files"].as_bool().unwrap_or(true);
+            delete_job(&app, id, files)?;
+            try_start_queued(&app).await;
             Ok(None)
         }
         Some("extract") => {
@@ -561,7 +583,15 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
             }
         });
     }
-    spawn_job(app, id, runner).await;
+    // queue when all download slots are busy (confirming jobs take no slot)
+    if running_count(&app) >= max_parallel() {
+        db_status(&app, id, "queued");
+        let _ = app
+            .events
+            .send(json!({"t":"status","id":id,"status":"queued"}).to_string());
+        return Ok(id);
+    }
+    spawn_job(app, id, runner);
     Ok(id)
 }
 
@@ -590,6 +620,10 @@ fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
     std::fs::create_dir_all(&dir).ok();
 
     let mut job: Job = job_from_url(&offer.url, Some(dir.clone()), offer.segments.unwrap_or(8), Limits::default());
+    // HLS playlists are saved as the transport stream they carry
+    if job.out.extension().map(|e| e.eq_ignore_ascii_case("m3u8")).unwrap_or(false) {
+        job.out.set_extension("ts");
+    }
     if let Some(name) = offer.filename.as_deref() {
         let clean = rdm_core::engine::sanitize_filename(name);
         if clean != "download" {
@@ -619,13 +653,53 @@ enum RunnerSpec {
     Page(Offer, bool),
 }
 
-async fn spawn_job(app: Arc<App>, id: u64, runner: RunnerSpec) {
+fn spawn_job(app: Arc<App>, id: u64, runner: RunnerSpec) {
     let (kill_tx, kill_rx) = watch::channel(false);
     app.ctl.lock().unwrap().insert(id, JobCtl { kill: kill_tx, intent: "cancelled" });
     let app2 = app.clone();
     tokio::spawn(async move {
         run_job(app2, id, runner, kill_rx).await;
     });
+}
+
+/* ---------- job queue: cap concurrent downloads, FIFO by id ---------- */
+
+fn max_parallel() -> usize {
+    settings_json()["max_parallel"].as_u64().unwrap_or(3).clamp(1, 16) as usize
+}
+
+fn running_count(app: &Arc<App>) -> usize {
+    app.ctl.lock().unwrap().len()
+}
+
+fn next_queued(app: &Arc<App>) -> Option<u64> {
+    let ctl = app.ctl.lock().unwrap();
+    app.db.lock().ok().and_then(|db| {
+        db.query_row(
+            "SELECT id FROM jobs WHERE status='queued' ORDER BY id LIMIT 1",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .ok()
+        .map(|id| {
+            let id = id as u64;
+            if ctl.contains_key(&id) { None } else { Some(id) }
+        })
+        .flatten()
+    })
+}
+
+/// Pull queued jobs into free slots (called whenever a slot opens or may have).
+async fn try_start_queued(app: &Arc<App>) {
+    loop {
+        if running_count(app) >= max_parallel() {
+            return;
+        }
+        let Some(id) = next_queued(app) else { return };
+        if resume_job(app, id, false).await.is_err() {
+            return;
+        }
+    }
 }
 
 /// Update status only - keeps `done`/`size` so a resumed job does not reset.
@@ -683,6 +757,17 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
     let Some(spec) = app.db_get_spec(id) else {
         bail!("no spec for job {id}");
     };
+    // all slots busy again? put it back in the queue instead of oversubscribing
+    if !restart && running_count(app) >= max_parallel() {
+        let was = app.db_job_row(id).map(|(s, _)| s);
+        if was.as_deref() != Some("queued") {
+            db_status(app, id, "queued");
+            let _ = app
+                .events
+                .send(json!({"t":"status","id":id,"status":"queued"}).to_string());
+        }
+        return Ok(());
+    }
     let offer: Offer = serde_json::from_str(&spec).context("corrupt spec")?;
     if restart {
         let (_, out_path, _) = build_job(&offer)?;
@@ -701,11 +786,11 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
         db_status(app, id, "running");
         let _ = app.events.send(json!({"t":"status","id":id,"status":"running"}).to_string());
     }
-    spawn_job(app.clone(), id, runner).await;
+    spawn_job(app.clone(), id, runner);
     Ok(())
 }
 
-fn delete_job(app: &Arc<App>, id: u64) -> Result<()> {
+fn delete_job(app: &Arc<App>, id: u64, files: bool) -> Result<()> {
     {
         let ctl = app.ctl.lock().unwrap();
         if let Some(c) = ctl.get(&id) {
@@ -713,17 +798,54 @@ fn delete_job(app: &Arc<App>, id: u64) -> Result<()> {
         }
     }
     app.ctl.lock().unwrap().remove(&id);
+    if files {
+        if let Some((status, out)) = app.db_job_row(id) {
+            if status != "completed" {
+                if let Some(out) = out.filter(|p| !p.is_empty()) {
+                    let path = PathBuf::from(&out);
+                    let _ = std::fs::remove_file(format!("{out}.rdm-part.json"));
+                    let _ = std::fs::remove_file(format!("{out}.rdm-hls.json"));
+                    let _ = std::fs::remove_file(&path);
+                    // page jobs split into {stem}.v.ext / {stem}.a.ext parts
+                    if let (Some(dir), Some(stem)) = (
+                        path.parent(),
+                        path.file_stem().map(|s| s.to_string_lossy().to_string()),
+                    ) {
+                        for pat in [format!("{stem}.v.*"), format!("{stem}.a.*")] {
+                            if let Ok(rd) = std::fs::read_dir(dir) {
+                                for e in rd.flatten() {
+                                    let name = e.file_name().to_string_lossy().to_string();
+                                    let base = name.trim_end_matches(".rdm-part.json").to_string();
+                                    if glob_like(&pat, &base) || glob_like(&pat, &name) {
+                                        let _ = std::fs::remove_file(e.path());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     let id2 = id;
     app.db_exec(move |db| db.execute("DELETE FROM jobs WHERE id=?1", [id2 as i64]).map(|_| ()));
     let _ = app.events.send(json!({"t":"deleted","id":id}).to_string());
     Ok(())
 }
 
+/// Tiny wildcard match: pattern `stem.v.*` matches `stem.v.mp4` etc.
+fn glob_like(pat: &str, name: &str) -> bool {
+    let Some((head, _)) = pat.split_once(".*") else { return pat == name };
+    name.starts_with(head)
+}
+
 async fn run_job(app: Arc<App>, id: u64, runner: RunnerSpec, kill_rx: watch::Receiver<bool>) {
     match runner {
-        RunnerSpec::Direct(job) => run_direct(app, id, job, kill_rx).await,
-        RunnerSpec::Page(offer, restart) => run_page(app, id, offer, restart, kill_rx).await,
+        RunnerSpec::Direct(job) => run_direct(app.clone(), id, job, kill_rx).await,
+        RunnerSpec::Page(offer, restart) => run_page(app.clone(), id, offer, restart, kill_rx).await,
     }
+    // a slot just opened: pull the next queued job in
+    try_start_queued(&app).await;
 }
 
 /// Download one media URL with the engine, emitting aggregated progress.

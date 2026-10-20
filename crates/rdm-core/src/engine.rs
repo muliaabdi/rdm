@@ -131,6 +131,8 @@ struct Probe {
     etag: Option<String>,
     last_modified: Option<String>,
     final_url: reqwest::Url,
+    content_type: Option<String>,
+    playlist: bool,
 }
 
 async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
@@ -168,8 +170,12 @@ async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
         }
     }
     let _ = req; // drop body via resp below
+    let headers_ct = resp.headers().get(reqwest::header::CONTENT_TYPE).cloned();
     let _ = resp.bytes().await;
-    Ok(Probe { size, accept_ranges, etag, last_modified, final_url })
+    let content_type = headers_ct
+        .and_then(|v| v.to_str().ok().map(str::to_string));
+    let playlist = crate::hls::looks_like_playlist(content_type.as_deref(), final_url.as_str());
+    Ok(Probe { size, accept_ranges, etag, last_modified, final_url, content_type, playlist })
 }
 
 enum Outcome {
@@ -200,6 +206,21 @@ pub async fn download(
         .connect_timeout(Duration::from_secs(10))
         .build()?;
     let probe = probe(&client, &job).await?;
+
+    // generic HLS: hand the job to the m3u8 path (output name x.m3u8 -> x.ts)
+    if probe.playlist {
+        let mut job = job;
+        if job
+            .out
+            .extension()
+            .map(|e| e.to_string_lossy().eq_ignore_ascii_case("m3u8"))
+            .unwrap_or(false)
+        {
+            job.out.set_extension("ts");
+        }
+        return crate::hls::download(job, events, kill, probe.content_type).await;
+    }
+
     let filename = job
         .out
         .file_name()

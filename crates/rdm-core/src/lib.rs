@@ -2,6 +2,7 @@
 
 pub mod engine;
 pub mod events;
+pub mod hls;
 pub mod state;
 
 pub use engine::{download, job_from_url, Job, Limits};

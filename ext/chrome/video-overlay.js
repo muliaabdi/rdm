@@ -78,10 +78,14 @@
         .in b { font-weight:600 }
         .in:hover b { color:#9ec5ff }
         svg { width:14px; height:14px; flex:none }
+        .mp3 { display:none; font:10px/1 system-ui,sans-serif; font-weight:600; color:#ffd479;
+               border:1px solid rgba(255,212,121,.55); border-radius:4px; padding:2px 4px; cursor:pointer; }
+        .mp3:hover { background:rgba(255,212,121,.15) }
       </style>
       <span class="in">
         <svg viewBox="0 0 24 24" fill="none" stroke="#7db3f5" stroke-width="2.4"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>
         <b id="__rdm_lbl">Download with RDM</b>
+        <span class="mp3" id="__rdm_mp3" title="Download audio only">MP3</span>
       </span>`;
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -107,12 +111,25 @@
         clearTimeout(hideTimer);
         hideTimer = setTimeout(destroy, 1200);
       });
+      btn.shadowRoot.querySelector("#__rdm_mp3").addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!pageModeNow) return;
+        const m = btn.shadowRoot.querySelector("#__rdm_mp3");
+        m.textContent = "…";
+        chrome.runtime.sendMessage({ t: "page-offer", url: location.href, audio: true }, () => {
+          m.textContent = chrome.runtime.lastError ? "ERR" : "✓";
+        });
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(destroy, 1200);
+      });
       document.documentElement.append(btn);
       window.addEventListener("scroll", place, true);
       window.addEventListener("resize", place);
     }
     current = el;
     const lbl = btn.shadowRoot.querySelector("#__rdm_lbl");
+    const mp3 = btn.shadowRoot.querySelector("#__rdm_mp3");
     if (lbl) {
       if (pageModeNow) {
         // keep the pill tiny on video pages: icon + "RDM"; the full text is the hover tooltip
@@ -123,6 +140,7 @@
         btn.title = "";
       }
     }
+    if (mp3) mp3.style.display = pageModeNow ? "block" : "none";
     btn.style.opacity = "1";
     place();
   }

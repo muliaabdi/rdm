@@ -94,14 +94,14 @@ async function offer(url, filename, referer, confirm) {
 }
 
 // Page-level offer: resolve the page via yt-dlp and download the best media.
-async function pageOffer(url, height) {
+async function pageOffer(url, height, audio) {
   const cookie = await cookieHeader(url);
   ensurePort().postMessage({
     t: "offer-page",
     url,
     page: true,
     height: height || 1080,
-    audio_only: false,
+    audio_only: !!audio,
     referer: url,
     cookie,
     ua: navigator.userAgent,
@@ -134,7 +134,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     offer(msg.url, msg.name || "", sender.tab ? sender.tab.url : "").catch(console.warn);
     sendResponse({ ok: true });
   } else if (msg && msg.t === "page-offer" && msg.url) {
-    pageOffer(msg.url, msg.height).catch(console.warn);
+    pageOffer(msg.url, msg.height, msg.audio).catch(console.warn);
     sendResponse({ ok: true });
   }
   return false;

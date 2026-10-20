@@ -115,7 +115,18 @@ async fn run_ytdlp(args: &[&str], timeout: Duration) -> Result<String> {
         Ok(Ok(st)) if st.success() && usable => Ok(out),
         Ok(Ok(_)) if usable => Ok(out),
         _ => {
-            let tail = err.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
+            // keep the last few stderr lines: yt-dlp puts the real cause
+            // (PO token, nsig, sign-in) after its generic preamble
+            let tail = err
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .rev()
+                .take(6)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join(" | ");
             let msg = if tail.is_empty() { "yt-dlp failed without output".into() } else { tail };
             bail!("{msg}")
         }
@@ -188,23 +199,76 @@ fn write_cookie_file(page_url: &str, header: &str) -> Option<CookieFile> {
 }
 
 /// Extract metadata + direct format URLs for a page/video URL.
+///
+/// YouTube rejects some client/cookie/UA combinations with
+/// "The page needs to be reloaded" (the `web` client now wants a PO token).
+/// So we walk a small ladder of attempts instead of failing the job outright.
 pub async fn extract(page_url: &str, cookie: Option<&str>, ua: Option<&str>) -> Result<ExtractInfo> {
+    let is_yt = is_youtube(page_url);
+    // (send cookie, send ua, avoid the web client)
+    let mut ladder: Vec<(bool, bool, bool)> = vec![(true, true, false)];
+    if is_yt {
+        // a browser UA/cookie set pushes YouTube onto the client that now
+        // demands a PO token; dropping them (or the client) gets through
+        ladder.push((false, false, false));
+        ladder.push((true, true, true));
+        ladder.push((false, false, true));
+    }
+    let cookie = cookie.filter(|c| !c.is_empty());
+    let ua = ua.filter(|u| !u.is_empty());
+
+    let mut last: Option<anyhow::Error> = None;
+    for (use_cookie, use_ua, avoid_web) in ladder {
+        let c = if use_cookie { cookie } else { None };
+        let u = if use_ua { ua } else { None };
+        match extract_once(page_url, c, u, avoid_web).await {
+            Ok(info) => return Ok(info),
+            Err(e) => {
+                tracing::warn!(
+                    "yt-dlp extract failed (cookie={use_cookie} ua={use_ua} no_web={avoid_web}): {e:#}"
+                );
+                last = Some(e);
+            }
+        }
+    }
+    let msg = last
+        .map(|e| format!("{e:#}"))
+        .unwrap_or_else(|| "yt-dlp extraction failed".to_string());
+    bail!("{msg}")
+}
+
+fn is_youtube(url: &str) -> bool {
+    let rest = url.split("://").nth(1).unwrap_or(url);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("").to_ascii_lowercase();
+    host.ends_with("youtube.com") || host.ends_with("youtu.be") || host.ends_with("youtube-nocookie.com")
+}
+
+async fn extract_once(
+    page_url: &str,
+    cookie: Option<&str>,
+    ua: Option<&str>,
+    avoid_web: bool,
+) -> Result<ExtractInfo> {
     let mut args: Vec<String> = vec![
         "-J".into(),
         // IPv6 to YouTube black-holes on some networks and stalls extraction
         // for minutes; IPv4 resolves the page in ~2s
         "--force-ipv4".into(),
         "--no-playlist".into(),
-        "--no-warnings".into(),
         page_url.into(),
     ];
+    if avoid_web {
+        // `web` needs a PO token now; its siblings still serve formats
+        args.push("--extractor-args".into());
+        args.push("youtube:player_client=default,-web".into());
+    }
     // keep the temp file alive until the child is done (Drop removes it)
-    let cfile = cookie.filter(|c| !c.is_empty()).and_then(|c| write_cookie_file(page_url, c));
+    let cfile = cookie.and_then(|c| write_cookie_file(page_url, c));
     if let Some(f) = &cfile {
         args.push("--cookies".into());
         args.push(f.0.to_string_lossy().into_owned());
     }
-    if let Some(u) = ua.filter(|u| !u.is_empty()) {
+    if let Some(u) = ua {
         args.push("--user-agent".into());
         args.push(u.into());
     }
