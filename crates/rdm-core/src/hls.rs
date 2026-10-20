@@ -341,7 +341,8 @@ pub async fn download(
         .unwrap_or_else(|| "download".into());
 
     let spath = state_path(&job.out);
-    let st: HlsState = if job.fresh {
+    let mut fresh = job.fresh;
+    let mut st: HlsState = if fresh {
         std::fs::remove_file(&spath).ok();
         HlsState {
             url: final_url.clone(),
@@ -359,14 +360,48 @@ pub async fn download(
             })
     };
 
+    // The output name is reused when the same page is re-downloaded (and
+    // `base.v.mp4` is identical across qualities), so a stale state file must
+    // never be trusted: `done` is a list of *indices*, and applying it to a
+    // different playlist marks segments complete that were never written.
+    // Same reasoning for a state file whose output file has disappeared
+    // (indices recorded, bytes gone -> holes at the front).
+    let state_ok = !st.url.is_empty() && st.url == final_url && job.out.exists();
+    if !fresh && !state_ok {
+        tracing::info!(
+            "hls: discarding resume state for {} (state url {}, wanted {final_url})",
+            job.out.display(),
+            if st.url.is_empty() { "-" } else { &st.url }
+        );
+        fresh = true;
+        std::fs::remove_file(&spath).ok();
+        st = HlsState {
+            url: final_url.clone(),
+            v: Some(2),
+            done: vec![],
+            written: None,
+        };
+    }
+
     let workers = job.segments.clamp(1, 16) as usize;
     let total = Arc::new(AtomicU64::new(0));
-    let mut writer = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&job.out)
-        .await
-        .with_context(|| format!("open {}", job.out.display()))?;
+    let mut writer = if fresh {
+        // restarting: the old bytes belong to another playlist run
+        tokio::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&job.out)
+            .await
+            .with_context(|| format!("open {}", job.out.display()))?
+    } else {
+        tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&job.out)
+            .await
+            .with_context(|| format!("open {}", job.out.display()))?
+    };
     total.fetch_add(writer.metadata().await?.len(), Ordering::Relaxed);
 
     events

@@ -17,6 +17,14 @@ command -v cargo >/dev/null || { echo "error: cargo not found" >&2; exit 1; }
 echo "==> build (release)"
 cargo build --release --manifest-path "$ROOT/Cargo.toml"
 
+# stop the old daemon *before* replacing the binary: `install` writes in place
+# ("text file busy" otherwise) and a systemd Restart=on-failure race leaves the
+# unit in start-limit-hit
+echo "==> stop running daemon"
+systemctl --user stop rdm-daemon 2>/dev/null || true
+pkill -x rdm-daemon 2>/dev/null || true
+sleep 0.3
+
 echo "==> install binaries -> $BIN_DIR"
 mkdir -p "$BIN_DIR"
 for b in rdm rdm-daemon rdm-ui rdm-host; do
@@ -37,10 +45,9 @@ RestartSec=1
 [Install]
 WantedBy=default.target
 EOF
-# a manually started daemon still owns the socket: stop it so systemd takes over
-pkill -x rdm-daemon 2>/dev/null || true
-sleep 0.3
 systemctl --user daemon-reload
+# clear a previous start-limit-hit, otherwise `enable --now` is a no-op
+systemctl --user reset-failed rdm-daemon 2>/dev/null || true
 systemctl --user enable --now rdm-daemon
 
 echo "==> browser native-messaging host"

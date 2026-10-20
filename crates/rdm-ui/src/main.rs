@@ -199,6 +199,28 @@ fn add_page(
 }
 
 fn spawn_daemon() {
+    // Prefer the systemd user unit when it exists: the daemon stays
+    // supervised (Restart=on-failure, journal) and the UI never parents (and
+    // zombies) the process. Direct spawn is the fallback for non-systemd
+    // setups (plain `cargo run`, containers).
+    let null = std::process::Stdio::null;
+    let enabled = std::process::Command::new("systemctl")
+        .args(["--user", "is-enabled", "--quiet", "rdm-daemon"])
+        .stdin(null())
+        .stdout(null())
+        .stderr(null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if enabled {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "start", "rdm-daemon"])
+            .stdin(null())
+            .stdout(null())
+            .stderr(null())
+            .status();
+        return;
+    }
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
@@ -210,12 +232,18 @@ fn spawn_daemon() {
         }
         use std::os::unix::process::CommandExt;
         use std::process::{Command, Stdio};
-        let _ = Command::new(&bin)
+        if let Ok(mut child) = Command::new(&bin)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .process_group(0)
-            .spawn();
+            .spawn()
+        {
+            // reap when it eventually exits, otherwise it lingers as a zombie
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
         return;
     }
 }
