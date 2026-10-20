@@ -324,6 +324,12 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
         Some("get-settings") => Ok(Some(
             json!({"t":"settings","settings":settings_json()}).to_string(),
         )),
+        Some("log") => {
+            // browser-extension diagnostics; lands in the journal
+            // (journalctl --user -u rdm-daemon)
+            tracing::info!(target: "ext", "{}", v["msg"].as_str().unwrap_or("?"));
+            Ok(None)
+        },
         Some("set-settings") => {
             // single writer: persist and push to every connected client (the
             // browser extension refreshes its intercept allow-list from this)

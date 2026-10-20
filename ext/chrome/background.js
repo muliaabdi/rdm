@@ -9,6 +9,11 @@ let port = null;
 let intercept = true; // takeover: cancel native downloads, route to RDM
 let interceptExt = null; // null/[] = every type; array = extension allow-list
 
+// diagnostics -> daemon journal (journalctl --user -u rdm-daemon -t ext)
+function dlog(msg) {
+  try { ensurePort().postMessage({ t: "log", msg }); } catch {}
+}
+
 chrome.storage.local.get({ intercept: true, interceptExt: null }, (s) => {
   intercept = !!s.intercept;
   interceptExt = Array.isArray(s.interceptExt) ? s.interceptExt : null;
@@ -206,6 +211,7 @@ chrome.downloads.onChanged.addListener((delta) => {
     pendingName.delete(delta.id);
     clearTimeout(p.timer);
     const name = delta.filename.current.split(/[\\/]/).pop() || "";
+    dlog(`resolved id=${delta.id} name="${name}"`);
     if (!extAllowed(name, p.url)) return; // not in the allow-list: keep it native
     (async () => {
       try {
@@ -233,11 +239,13 @@ chrome.downloads.onCreated.addListener(async (item) => {
 
     const name = (item.filename || "").split(/[\\/]/).pop() || nameFromUrl(url);
     if (!extAllowed(name, url)) {
+      dlog(`skip name="${name}" ext=${JSON.stringify(extOf(name, url))} allowed=${JSON.stringify(interceptExt)} url=${url.slice(0, 120)}`);
       // no extension anywhere yet (drive.usercontent.google.com & co):
       // wait for Chrome to resolve the filename, then decide
       if (!extOf(name, url) && !pendingName.has(item.id)) {
         const timer = setTimeout(() => pendingName.delete(item.id), 60000);
         pendingName.set(item.id, { url, referrer: item.referrer || "", timer });
+        dlog(`park id=${item.id} awaiting filename`);
       }
       return; // not in the RDM allow-list: let the browser handle it
     }
