@@ -83,7 +83,9 @@ async fn run_ytdlp(args: &[&str], timeout: Duration) -> Result<String> {
         .stderr(Stdio::piped())
         // never leak a hung yt-dlp if the future is dropped mid-wait
         .kill_on_drop(true);
-    let mut child = cmd.spawn().with_context(|| format!("spawn {}", bin.display()))?;
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("spawn {}", bin.display()))?;
     let mut so = child.stdout.take().unwrap();
     let mut se = child.stderr.take().unwrap();
     let (txo, ro) = tokio::sync::oneshot::channel::<String>();
@@ -103,8 +105,16 @@ async fn run_ytdlp(args: &[&str], timeout: Duration) -> Result<String> {
         let _ = child.start_kill();
     }
     // give the readers a moment to drain whatever yt-dlp wrote before it died
-    let out = tokio::time::timeout(Duration::from_secs(5), ro).await.ok().and_then(|r| r.ok()).unwrap_or_default();
-    let err = tokio::time::timeout(Duration::from_secs(5), re).await.ok().and_then(|r| r.ok()).unwrap_or_default();
+    let out = tokio::time::timeout(Duration::from_secs(5), ro)
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or_default();
+    let err = tokio::time::timeout(Duration::from_secs(5), re)
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or_default();
     // yt-dlp prints `null` on stdout when extraction fails outright
     let usable = !out.trim().is_empty() && out.trim() != "null";
     match wait {
@@ -127,7 +137,11 @@ async fn run_ytdlp(args: &[&str], timeout: Duration) -> Result<String> {
                 .rev()
                 .collect::<Vec<_>>()
                 .join(" | ");
-            let msg = if tail.is_empty() { "yt-dlp failed without output".into() } else { tail };
+            let msg = if tail.is_empty() {
+                "yt-dlp failed without output".into()
+            } else {
+                tail
+            };
             bail!("{msg}")
         }
     }
@@ -166,7 +180,11 @@ impl Drop for CookieFile {
 
 fn write_cookie_file(page_url: &str, header: &str) -> Option<CookieFile> {
     let rest = page_url.split("://").nth(1)?;
-    let host = rest.split(['/', '?', '#']).next()?.trim_start_matches("www.").to_string();
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()?
+        .trim_start_matches("www.")
+        .to_string();
     if host.is_empty() {
         return None;
     }
@@ -182,8 +200,14 @@ fn write_cookie_file(page_url: &str, header: &str) -> Option<CookieFile> {
     let mut body = String::from("# Netscape HTTP Cookie File\n");
     let mut n = 0usize;
     for pair in header.split(';') {
-        let Some((k, v)) = pair.trim().split_once('=') else { continue };
-        body.push_str(&format!(".{host}\tTRUE\t/\tTRUE\t4102444800\t{}\t{}\n", k.trim(), v.trim()));
+        let Some((k, v)) = pair.trim().split_once('=') else {
+            continue;
+        };
+        body.push_str(&format!(
+            ".{host}\tTRUE\t/\tTRUE\t4102444800\t{}\t{}\n",
+            k.trim(),
+            v.trim()
+        ));
         n += 1;
     }
     if n == 0 {
@@ -203,7 +227,11 @@ fn write_cookie_file(page_url: &str, header: &str) -> Option<CookieFile> {
 /// YouTube rejects some client/cookie/UA combinations with
 /// "The page needs to be reloaded" (the `web` client now wants a PO token).
 /// So we walk a small ladder of attempts instead of failing the job outright.
-pub async fn extract(page_url: &str, cookie: Option<&str>, ua: Option<&str>) -> Result<ExtractInfo> {
+pub async fn extract(
+    page_url: &str,
+    cookie: Option<&str>,
+    ua: Option<&str>,
+) -> Result<ExtractInfo> {
     let is_yt = is_youtube(page_url);
     // (send cookie, send ua, avoid the web client)
     let mut ladder: Vec<(bool, bool, bool)> = vec![(true, true, false)];
@@ -239,8 +267,14 @@ pub async fn extract(page_url: &str, cookie: Option<&str>, ua: Option<&str>) -> 
 
 fn is_youtube(url: &str) -> bool {
     let rest = url.split("://").nth(1).unwrap_or(url);
-    let host = rest.split(['/', '?', '#']).next().unwrap_or("").to_ascii_lowercase();
-    host.ends_with("youtube.com") || host.ends_with("youtu.be") || host.ends_with("youtube-nocookie.com")
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    host.ends_with("youtube.com")
+        || host.ends_with("youtu.be")
+        || host.ends_with("youtube-nocookie.com")
 }
 
 async fn extract_once(
@@ -353,8 +387,15 @@ pub fn pick(info: &ExtractInfo, max_height: u64, audio_only: bool) -> (Fmt, Opti
     let vid = info
         .formats
         .iter()
-        .filter(|f| f.vcodec != "none" && f.acodec == "none" && f.height.map_or(false, |h| h <= max_height))
-        .max_by_key(|f| (f.height.unwrap_or(0), f.ext == "mp4" && f.vcodec.starts_with("avc")))
+        .filter(|f| {
+            f.vcodec != "none" && f.acodec == "none" && f.height.map_or(false, |h| h <= max_height)
+        })
+        .max_by_key(|f| {
+            (
+                f.height.unwrap_or(0),
+                f.ext == "mp4" && f.vcodec.starts_with("avc"),
+            )
+        })
         .cloned();
     match vid {
         Some(v) => (v, audio_best()),

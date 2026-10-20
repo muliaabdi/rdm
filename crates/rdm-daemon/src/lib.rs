@@ -29,7 +29,9 @@ pub fn socket_path() -> PathBuf {
     if let Ok(x) = std::env::var("XDG_RUNTIME_DIR") {
         return PathBuf::from(x).join("rdm.sock");
     }
-    let mut p = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    let mut p = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
     p.push(".rdm");
     p.push("rdm.sock");
     p
@@ -39,7 +41,9 @@ fn db_path() -> PathBuf {
     if let Ok(p) = std::env::var("RDM_DB") {
         return PathBuf::from(p);
     }
-    let mut p = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    let mut p = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
     p.push(".local");
     p.push("share");
     p.push("rdm");
@@ -48,7 +52,9 @@ fn db_path() -> PathBuf {
 }
 
 fn default_out_dir() -> PathBuf {
-    let mut p = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    let mut p = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
     p.push("Downloads");
     if p.is_dir() {
         p
@@ -67,6 +73,9 @@ struct App {
     events: broadcast::Sender<String>,
     next_id: AtomicU64,
     ctl: Mutex<HashMap<u64, JobCtl>>,
+    // latest in-flight progress; the DB row only gets `done` on terminal or
+    // pause, so snapshots (`list`) read live values from here instead
+    live: Mutex<HashMap<u64, (i64, Option<i64>)>>,
 }
 
 impl App {
@@ -113,7 +122,13 @@ impl App {
                 next = m as u64 + 1;
             }
         }
-        Ok(App { db: Mutex::new(db), events, next_id: AtomicU64::new(next), ctl: Mutex::new(HashMap::new()) })
+        Ok(App {
+            db: Mutex::new(db),
+            events,
+            next_id: AtomicU64::new(next),
+            ctl: Mutex::new(HashMap::new()),
+            live: Mutex::new(HashMap::new()),
+        })
     }
 
     fn db_update(&self, id: u64, done: u64, status: &str, error: Option<&str>, size: Option<u64>) {
@@ -126,8 +141,16 @@ impl App {
                 "UPDATE jobs SET done=?1, status=?2, error=?3, updated=?4, size=COALESCE(?5,size) WHERE id=?6",
                 rusqlite::params![done as i64, status, error, now, size.map(|s| s as i64), id as i64],
             )?;
+            self.live.lock().unwrap().remove(&id);
             Ok(())
         });
+    }
+
+    fn note_live(&self, id: u64, done: u64, size: Option<u64>) {
+        self.live
+            .lock()
+            .unwrap()
+            .insert(id, (done as i64, size.map(|s| s as i64)));
     }
 
     fn db_exec<F>(&self, f: F)
@@ -143,9 +166,11 @@ impl App {
 
     fn db_get_spec(&self, id: u64) -> Option<String> {
         let db = self.db.lock().ok()?;
-        db.query_row("SELECT spec FROM jobs WHERE id=?1", [id as i64], |r| r.get::<_, Option<String>>(0))
-            .ok()
-            .flatten()
+        db.query_row("SELECT spec FROM jobs WHERE id=?1", [id as i64], |r| {
+            r.get::<_, Option<String>>(0)
+        })
+        .ok()
+        .flatten()
     }
 
     /// (status, out_path) of a job row, used by delete cleanup.
@@ -242,7 +267,11 @@ async fn handle_client(app: Arc<App>, stream: UnixStream) {
     let mut evrx = app.events.subscribe();
     // greet new clients with current settings so the extension can refresh
     // its takeover allow-list without polling
-    let _ = write_line(&mut w, &json!({"t":"settings","settings":settings_json()}).to_string()).await;
+    let _ = write_line(
+        &mut w,
+        &json!({"t":"settings","settings":settings_json()}).to_string(),
+    )
+    .await;
     loop {
         tokio::select! {
             line = lines.next_line() => {
@@ -284,9 +313,9 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             let jobs = list_jobs(&app)?;
             Ok(Some(json!({"t":"jobs","jobs":jobs}).to_string()))
         }
-        Some("get-settings") => {
-            Ok(Some(json!({"t":"settings","settings":settings_json()}).to_string()))
-        }
+        Some("get-settings") => Ok(Some(
+            json!({"t":"settings","settings":settings_json()}).to_string(),
+        )),
         Some("set-settings") => {
             // single writer: persist and push to every connected client (the
             // browser extension refreshes its intercept allow-list from this)
@@ -295,8 +324,11 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             if let Some(dir) = p.parent() {
                 std::fs::create_dir_all(dir).context("create settings dir")?;
             }
-            std::fs::write(&p, serde_json::to_vec_pretty(&val).context("encode settings")?)
-                .context("write settings")?;
+            std::fs::write(
+                &p,
+                serde_json::to_vec_pretty(&val).context("encode settings")?,
+            )
+            .context("write settings")?;
             let _ = app
                 .events
                 .send(json!({"t":"settings","settings":val}).to_string());
@@ -325,9 +357,12 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             let url = v["url"].as_str().context("url required")?.to_string();
             let cookie = v["cookie"].as_str().map(str::to_string);
             let ua = v["ua"].as_str().map(str::to_string);
-            let info = tokio::time::timeout(Duration::from_secs(120), ytdlp::extract(&url, cookie.as_deref(), ua.as_deref()))
-                .await
-                .context("extract timeout")??;
+            let info = tokio::time::timeout(
+                Duration::from_secs(120),
+                ytdlp::extract(&url, cookie.as_deref(), ua.as_deref()),
+            )
+            .await
+            .context("extract timeout")??;
             Ok(Some(
                 json!({
                     "t":"formats",
@@ -367,7 +402,9 @@ fn bring_ui(app: &Arc<App>) {
     // the daemon may have been started without a graphical environment
     // (systemd unit, headless shell); borrow one from the user's session.
     let env = session_env();
-    let has_gui = env.iter().any(|(k, _)| k == "DISPLAY" || k == "WAYLAND_DISPLAY")
+    let has_gui = env
+        .iter()
+        .any(|(k, _)| k == "DISPLAY" || k == "WAYLAND_DISPLAY")
         || std::env::var_os("DISPLAY").is_some()
         || std::env::var_os("WAYLAND_DISPLAY").is_some();
     if !has_gui {
@@ -386,7 +423,9 @@ fn bring_ui(app: &Arc<App>) {
         Ok(mut c) => {
             tracing::info!("bring_ui: launched {} pid {}", bin.display(), c.id());
             // reap exactly this child; a forgotten wait leaves a zombie in the daemon
-            std::thread::spawn(move || { let _ = c.wait(); });
+            std::thread::spawn(move || {
+                let _ = c.wait();
+            });
         }
         Err(e) => tracing::warn!("bring_ui: spawn failed: {e}"),
     }
@@ -462,7 +501,9 @@ fn session_env() -> Vec<(String, String)> {
     pids.sort();
     let mut fallback: Option<Vec<(String, String)>> = None;
     for path in pids {
-        let Ok(md) = std::fs::metadata(&path) else { continue };
+        let Ok(md) = std::fs::metadata(&path) else {
+            continue;
+        };
         if md.uid() != me {
             continue;
         }
@@ -474,8 +515,12 @@ fn session_env() -> Vec<(String, String)> {
         let mut found = Vec::new();
         let mut has_gui = false;
         for kv in raw.split(|b| *b == 0) {
-            let Ok(kv) = std::str::from_utf8(kv) else { continue };
-            let Some((k, v)) = kv.split_once('=') else { continue };
+            let Ok(kv) = std::str::from_utf8(kv) else {
+                continue;
+            };
+            let Some((k, v)) = kv.split_once('=') else {
+                continue;
+            };
             if k == "DISPLAY" || k == "WAYLAND_DISPLAY" {
                 has_gui = true;
             }
@@ -497,7 +542,9 @@ fn session_env() -> Vec<(String, String)> {
 }
 
 fn ui_running() -> bool {
-    let Ok(rd) = std::fs::read_dir("/proc") else { return false };
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return false;
+    };
     for e in rd.flatten() {
         let name = e.file_name();
         let s = name.to_string_lossy();
@@ -536,7 +583,11 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     let runner = if offer.page.unwrap_or(false) {
-        let dir = offer.dir.clone().map(PathBuf::from).unwrap_or_else(default_out_dir);
+        let dir = offer
+            .dir
+            .clone()
+            .map(PathBuf::from)
+            .unwrap_or_else(default_out_dir);
         std::fs::create_dir_all(&dir).ok();
         RunnerSpec::Page(offer.clone(), false)
     } else {
@@ -568,8 +619,16 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
     };
     if let RunnerSpec::Page(o, _) = &runner {
         let url = o.url.clone();
-        let dir = o.dir.clone().map(PathBuf::from).unwrap_or_else(default_out_dir);
-        let fname = format!("{} — {}", host_of(&o.url), rdm_core::engine::sanitize_filename(&o.url));
+        let dir = o
+            .dir
+            .clone()
+            .map(PathBuf::from)
+            .unwrap_or_else(default_out_dir);
+        let fname = format!(
+            "{} — {}",
+            host_of(&o.url),
+            rdm_core::engine::sanitize_filename(&o.url)
+        );
         let out_path = dir.to_string_lossy().to_string();
         app.db_exec({
             let spec = spec.clone();
@@ -596,7 +655,13 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
 }
 
 fn host_of(url: &str) -> String {
-    url.split("//").nth(1).unwrap_or(url).split('/').next().unwrap_or("page").to_string()
+    url.split("//")
+        .nth(1)
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or("page")
+        .to_string()
 }
 
 fn offer_json(o: &Offer) -> serde_json::Value {
@@ -616,12 +681,26 @@ fn offer_json(o: &Offer) -> serde_json::Value {
 }
 
 fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
-    let dir = offer.dir.clone().map(PathBuf::from).unwrap_or_else(default_out_dir);
+    let dir = offer
+        .dir
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(default_out_dir);
     std::fs::create_dir_all(&dir).ok();
 
-    let mut job: Job = job_from_url(&offer.url, Some(dir.clone()), offer.segments.unwrap_or(8), Limits::default());
+    let mut job: Job = job_from_url(
+        &offer.url,
+        Some(dir.clone()),
+        offer.segments.unwrap_or(8),
+        Limits::default(),
+    );
     // HLS playlists are saved as the transport stream they carry
-    if job.out.extension().map(|e| e.eq_ignore_ascii_case("m3u8")).unwrap_or(false) {
+    if job
+        .out
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("m3u8"))
+        .unwrap_or(false)
+    {
         job.out.set_extension("ts");
     }
     if let Some(name) = offer.filename.as_deref() {
@@ -644,7 +723,11 @@ fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
     job.headers = hdrs;
 
     let out_path = job.out.to_string_lossy().to_string();
-    let filename = job.out.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let filename = job
+        .out
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
     Ok((job, out_path, filename))
 }
 
@@ -655,7 +738,13 @@ enum RunnerSpec {
 
 fn spawn_job(app: Arc<App>, id: u64, runner: RunnerSpec) {
     let (kill_tx, kill_rx) = watch::channel(false);
-    app.ctl.lock().unwrap().insert(id, JobCtl { kill: kill_tx, intent: "cancelled" });
+    app.ctl.lock().unwrap().insert(
+        id,
+        JobCtl {
+            kill: kill_tx,
+            intent: "cancelled",
+        },
+    );
     let app2 = app.clone();
     tokio::spawn(async move {
         run_job(app2, id, runner, kill_rx).await;
@@ -665,7 +754,10 @@ fn spawn_job(app: Arc<App>, id: u64, runner: RunnerSpec) {
 /* ---------- job queue: cap concurrent downloads, FIFO by id ---------- */
 
 fn max_parallel() -> usize {
-    settings_json()["max_parallel"].as_u64().unwrap_or(3).clamp(1, 16) as usize
+    settings_json()["max_parallel"]
+        .as_u64()
+        .unwrap_or(3)
+        .clamp(1, 16) as usize
 }
 
 fn running_count(app: &Arc<App>) -> usize {
@@ -683,7 +775,11 @@ fn next_queued(app: &Arc<App>) -> Option<u64> {
         .ok()
         .map(|id| {
             let id = id as u64;
-            if ctl.contains_key(&id) { None } else { Some(id) }
+            if ctl.contains_key(&id) {
+                None
+            } else {
+                Some(id)
+            }
         })
         .flatten()
     })
@@ -724,7 +820,9 @@ async fn stop_job(app: &Arc<App>, id: u64, intent: &'static str) -> Result<()> {
         let _ = c.kill.send(true);
         drop(ctl);
         // flip the UI immediately; the engine's terminal event confirms after
-        let _ = app.events.send(json!({"t":"status","id":id,"status":intent}).to_string());
+        let _ = app
+            .events
+            .send(json!({"t":"status","id":id,"status":intent}).to_string());
         Ok(())
     } else {
         drop(ctl);
@@ -784,7 +882,9 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
     if !restart {
         // keep the paused progress on screen until fresh bytes arrive
         db_status(app, id, "running");
-        let _ = app.events.send(json!({"t":"status","id":id,"status":"running"}).to_string());
+        let _ = app
+            .events
+            .send(json!({"t":"status","id":id,"status":"running"}).to_string());
     }
     spawn_job(app.clone(), id, runner);
     Ok(())
@@ -828,21 +928,29 @@ fn delete_job(app: &Arc<App>, id: u64, files: bool) -> Result<()> {
         }
     }
     let id2 = id;
-    app.db_exec(move |db| db.execute("DELETE FROM jobs WHERE id=?1", [id2 as i64]).map(|_| ()));
+    app.db_exec(move |db| {
+        db.execute("DELETE FROM jobs WHERE id=?1", [id2 as i64])
+            .map(|_| ())
+    });
+    app.live.lock().unwrap().remove(&id);
     let _ = app.events.send(json!({"t":"deleted","id":id}).to_string());
     Ok(())
 }
 
 /// Tiny wildcard match: pattern `stem.v.*` matches `stem.v.mp4` etc.
 fn glob_like(pat: &str, name: &str) -> bool {
-    let Some((head, _)) = pat.split_once(".*") else { return pat == name };
+    let Some((head, _)) = pat.split_once(".*") else {
+        return pat == name;
+    };
     name.starts_with(head)
 }
 
 async fn run_job(app: Arc<App>, id: u64, runner: RunnerSpec, kill_rx: watch::Receiver<bool>) {
     match runner {
         RunnerSpec::Direct(job) => run_direct(app.clone(), id, job, kill_rx).await,
-        RunnerSpec::Page(offer, restart) => run_page(app.clone(), id, offer, restart, kill_rx).await,
+        RunnerSpec::Page(offer, restart) => {
+            run_page(app.clone(), id, offer, restart, kill_rx).await
+        }
     }
     // a slot just opened: pull the next queued job in
     try_start_queued(&app).await;
@@ -856,7 +964,10 @@ struct PhaseStat {
 
 impl Default for PhaseStat {
     fn default() -> Self {
-        PhaseStat { done: 0, size: None }
+        PhaseStat {
+            done: 0,
+            size: None,
+        }
     }
 }
 
@@ -875,18 +986,25 @@ async fn run_media(
     let mut last_emit = Instant::now() - Duration::from_secs(10);
     while let Some(p) = rx.recv().await {
         match p {
-            Progress::Bytes { total_done, size, .. } => {
+            Progress::Bytes {
+                total_done, size, ..
+            } => {
                 st.done = total_done;
                 st.size = size;
             }
             Progress::Detail { segments } => {
-                let _ = app.events.send(
-                    json!({"t":"detail","id":id,"segments":segments}).to_string(),
-                );
+                let _ = app
+                    .events
+                    .send(json!({"t":"detail","id":id,"segments":segments}).to_string());
             }
-            Progress::Retrying { index, attempt, error } => {
+            Progress::Retrying {
+                index,
+                attempt,
+                error,
+            } => {
                 let _ = app.events.send(
-                    json!({"t":"retrying","id":id,"segment":index,"attempt":attempt,"error":error}).to_string(),
+                    json!({"t":"retrying","id":id,"segment":index,"attempt":attempt,"error":error})
+                        .to_string(),
                 );
             }
             Progress::Started { size, .. } => st.size = size,
@@ -904,7 +1022,10 @@ async fn run_media(
             // size is the sum of every phase's size known so far; it grows as
             // later phases (audio, mux) start, like IDM's dynamic total.
             let size = st.size.map(|s| s + other_size.unwrap_or(0)).or(other_size);
-            let _ = app.events.send(json!({"t":"progress","id":id,"done":done,"size":size}).to_string());
+            app.note_live(id, done, size);
+            let _ = app
+                .events
+                .send(json!({"t":"progress","id":id,"done":done,"size":size}).to_string());
         }
     }
     match handle.await {
@@ -914,7 +1035,17 @@ async fn run_media(
 }
 
 fn job_for(url: &str, out: PathBuf, offer: &Offer, segments: u64) -> Job {
-    let mut job = job_from_url(url, Some(out.clone().parent().map(|p| p.to_path_buf()).unwrap_or_default()), segments, Limits::default());
+    let mut job = job_from_url(
+        url,
+        Some(
+            out.clone()
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_default(),
+        ),
+        segments,
+        Limits::default(),
+    );
     job.out = out;
     let mut hdrs = HeaderMap::new();
     let put = |h: &mut HeaderMap, n: HeaderName, v: &str| {
@@ -931,14 +1062,23 @@ fn job_for(url: &str, out: PathBuf, offer: &Offer, segments: u64) -> Job {
     job
 }
 
-async fn ffmpeg_mux(video: &std::path::Path, audio: Option<&std::path::Path>, out: &std::path::Path) -> Result<()> {
+async fn ffmpeg_mux(
+    video: &std::path::Path,
+    audio: Option<&std::path::Path>,
+    out: &std::path::Path,
+) -> Result<()> {
     use std::process::Stdio;
     let mut cmd = tokio::process::Command::new("ffmpeg");
     cmd.arg("-y").arg("-i").arg(video);
     if let Some(a) = audio {
         cmd.arg("-i").arg(a);
     }
-    cmd.arg("-c").arg("copy").arg(out).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.arg("-c")
+        .arg("copy")
+        .arg(out)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
     let out_err = cmd.stderr(Stdio::piped());
     let mut child = out_err.spawn().context("spawn ffmpeg")?;
     let mut err = String::new();
@@ -946,7 +1086,9 @@ async fn ffmpeg_mux(video: &std::path::Path, audio: Option<&std::path::Path>, ou
         use tokio::io::AsyncReadExt;
         let _ = se.read_to_string(&mut err).await;
     }
-    let st = tokio::time::timeout(Duration::from_secs(600), child.wait()).await.context("ffmpeg timeout")??;
+    let st = tokio::time::timeout(Duration::from_secs(600), child.wait())
+        .await
+        .context("ffmpeg timeout")??;
     if !st.success() {
         let tail = err.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
         bail!("ffmpeg: {tail}");
@@ -954,12 +1096,24 @@ async fn ffmpeg_mux(video: &std::path::Path, audio: Option<&std::path::Path>, ou
     Ok(())
 }
 
-async fn run_page(app: Arc<App>, id: u64, offer: Offer, restart: bool, mut kill_rx: watch::Receiver<bool>) {
+async fn run_page(
+    app: Arc<App>,
+    id: u64,
+    offer: Offer,
+    restart: bool,
+    mut kill_rx: watch::Receiver<bool>,
+) {
     let finish = |status: &str, err: Option<String>| {
-        let _ = app.events.send(json!({"t":status,"id":id,"done":0,"error":err}).to_string());
+        let _ = app
+            .events
+            .send(json!({"t":status,"id":id,"done":0,"error":err}).to_string());
     };
-    let _ = app.events.send(json!({"t":"started","id":id,"size":null}).to_string());
-    let _ = app.events.send(json!({"t":"status","id":id,"status":"resolving"}).to_string());
+    let _ = app
+        .events
+        .send(json!({"t":"started","id":id,"size":null}).to_string());
+    let _ = app
+        .events
+        .send(json!({"t":"status","id":id,"status":"resolving"}).to_string());
 
     let info = {
         // abortable: pause/stop must not wait out a slow extraction
@@ -987,18 +1141,31 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, restart: bool, mut kill_
         cancel_page(&app, id).await;
         return;
     }
-    let (v, a) = ytdlp::pick(&info, offer.height.unwrap_or(1080), offer.audio_only.unwrap_or(false));
-    let dir = offer.dir.clone().map(PathBuf::from).unwrap_or_else(default_out_dir);
+    let (v, a) = ytdlp::pick(
+        &info,
+        offer.height.unwrap_or(1080),
+        offer.audio_only.unwrap_or(false),
+    );
+    let dir = offer
+        .dir
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(default_out_dir);
     let base = rdm_core::engine::sanitize_filename(&info.title);
     let vpath = dir.join(format!("{base}.v.{}", v.ext));
-    let apath = a.as_ref().map(|af| dir.join(format!("{base}.a.{}", af.ext)));
+    let apath = a
+        .as_ref()
+        .map(|af| dir.join(format!("{base}.a.{}", af.ext)));
     let final_path = if a.is_some() {
         dir.join(format!("{base}.mp4"))
     } else {
         dir.join(format!("{base}.{}", v.ext))
     };
     {
-        let fname = final_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or(base.clone());
+        let fname = final_path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or(base.clone());
         let outp = final_path.to_string_lossy().to_string();
         app.db_exec(move |db| {
             db.execute(
@@ -1011,7 +1178,9 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, restart: bool, mut kill_
     // resolved: real filename + format known, switch from resolving to running
     // (status only - keep `done` so a resumed job does not flash back to 0)
     db_status(&app, id, "running");
-    let _ = app.events.send(json!({"t":"status","id":id,"status":"running"}).to_string());
+    let _ = app
+        .events
+        .send(json!({"t":"status","id":id,"status":"running"}).to_string());
 
     // phase 1: video
     let gv: PhaseStat;
@@ -1045,6 +1214,11 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, restart: bool, mut kill_
     // phase 3: mux / rename
     let muxed = if let Some(ap) = apath.as_ref() {
         let _ = app.events.send(json!({"t":"progress","id":id,"done":gv.done + ga.done,"size":gv.size.map(|v| v + ga.size.unwrap_or(0))}).to_string());
+        app.note_live(
+            id,
+            gv.done + ga.done,
+            gv.size.map(|v| v + ga.size.unwrap_or(0)),
+        );
         ffmpeg_mux(&vpath, Some(ap), &final_path).await
     } else {
         std::fs::rename(&vpath, &final_path).map_err(|e| anyhow::anyhow!("rename: {e}"))
@@ -1055,17 +1229,24 @@ async fn run_page(app: Arc<App>, id: u64, offer: Offer, restart: bool, mut kill_
     }
     match muxed {
         Ok(()) => {
-            let size = final_path.metadata().map(|m| m.len()).unwrap_or(gv.done + ga.done);
+            let size = final_path
+                .metadata()
+                .map(|m| m.len())
+                .unwrap_or(gv.done + ga.done);
             let _ = std::fs::remove_file(&vpath);
             if let Some(ap) = apath.as_ref() {
                 let _ = std::fs::remove_file(ap);
             }
-            let _ = app.events.send(json!({"t":"done","id":id,"size":size,"sha256":null}).to_string());
+            let _ = app
+                .events
+                .send(json!({"t":"done","id":id,"size":size,"sha256":null}).to_string());
             app.db_update(id, size, "completed", None, Some(size));
         }
         Err(e) => {
             let msg = format!("{e:#}");
-            let _ = app.events.send(json!({"t":"failed","id":id,"error":msg}).to_string());
+            let _ = app
+                .events
+                .send(json!({"t":"failed","id":id,"error":msg}).to_string());
             app.db_update(id, gv.done + ga.done, "failed", Some(&msg), None);
         }
     }
@@ -1077,15 +1258,25 @@ async fn page_fail(app: &Arc<App>, id: u64, e: anyhow::Error) {
     if msg.contains("__cancelled__") {
         cancel_page(app, id).await;
     } else {
-        let _ = app.events.send(json!({"t":"failed","id":id,"error":msg}).to_string());
+        let _ = app
+            .events
+            .send(json!({"t":"failed","id":id,"error":msg}).to_string());
         app.db_update(id, 0, "failed", Some(&msg), None);
         app.ctl.lock().unwrap().remove(&id);
     }
 }
 
 async fn cancel_page(app: &Arc<App>, id: u64) {
-    let intent = app.ctl.lock().unwrap().get(&id).map(|c| c.intent).unwrap_or("cancelled");
-    let _ = app.events.send(json!({"t":intent,"id":id,"done":0}).to_string());
+    let intent = app
+        .ctl
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|c| c.intent)
+        .unwrap_or("cancelled");
+    let _ = app
+        .events
+        .send(json!({"t":intent,"id":id,"done":0}).to_string());
     app.db_update(id, 0, intent, None, None);
     app.ctl.lock().unwrap().remove(&id);
 }
@@ -1107,17 +1298,28 @@ async fn run_direct(app: Arc<App>, id: u64, job: Job, kill_rx: watch::Receiver<b
             Progress::Detail { segments } => {
                 line = Some(json!({"t":"detail","id":id,"segments":segments}).to_string());
             }
-            Progress::Bytes { total_done, size: s, .. } => {
+            Progress::Bytes {
+                total_done,
+                size: s,
+                ..
+            } => {
                 done = *total_done;
                 size = *s;
                 if last.elapsed() >= Duration::from_millis(100) {
-                    line = Some(json!({"t":"progress","id":id,"done":done,"size":size}).to_string());
+                    app.note_live(id, done, size);
+                    line =
+                        Some(json!({"t":"progress","id":id,"done":done,"size":size}).to_string());
                     last = Instant::now();
                 }
             }
-            Progress::Retrying { index, attempt, error } => {
+            Progress::Retrying {
+                index,
+                attempt,
+                error,
+            } => {
                 line = Some(
-                    json!({"t":"retrying","id":id,"segment":index,"attempt":attempt,"error":error}).to_string(),
+                    json!({"t":"retrying","id":id,"segment":index,"attempt":attempt,"error":error})
+                        .to_string(),
                 );
             }
             Progress::Completed { size: s, sha256 } => {
@@ -1176,6 +1378,23 @@ fn list_jobs(app: &App) -> Result<serde_json::Value> {
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
+    }
+    // running jobs carry their live byte counts in `live`, not the DB row
+    let live = app
+        .live
+        .lock()
+        .map_err(|e| anyhow::anyhow!("live lock: {e}"))?;
+    for j in out.iter_mut() {
+        if !matches!(j["status"].as_str(), Some("running") | Some("resolving")) {
+            continue;
+        }
+        let Some(id) = j["id"].as_i64() else { continue };
+        if let Some((done, size)) = live.get(&(id as u64)) {
+            j["done"] = json!(done);
+            if let Some(s) = size {
+                j["size"] = json!(s);
+            }
+        }
     }
     Ok(serde_json::Value::Array(out))
 }

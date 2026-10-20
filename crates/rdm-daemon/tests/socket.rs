@@ -37,17 +37,27 @@ async fn serve() -> String {
 }
 
 async fn handler(State(data): State<Arc<Vec<u8>>>, headers: HeaderMap) -> Response {
-    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     if let Some(r) = range {
         let spec = r.trim_start_matches("bytes=");
         let (a, b) = spec.split_once('-').unwrap();
         let start: usize = a.parse().unwrap();
-        let end = if b.is_empty() { data.len() - 1 } else { b.parse().unwrap() };
+        let end = if b.is_empty() {
+            data.len() - 1
+        } else {
+            b.parse().unwrap()
+        };
         let slice = data[start..=end].to_vec();
         return Response::builder()
             .status(StatusCode::PARTIAL_CONTENT)
             .header(header::ETAG, "\"v1\"")
-            .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{}", data.len()))
+            .header(
+                header::CONTENT_RANGE,
+                format!("bytes {start}-{end}/{}", data.len()),
+            )
             .header(header::CONTENT_LENGTH, slice.len())
             .body(Body::from(slice))
             .unwrap();
@@ -64,7 +74,10 @@ async fn handler(State(data): State<Arc<Vec<u8>>>, headers: HeaderMap) -> Respon
 async fn handler_slow(State(data): State<Arc<Vec<u8>>>, headers: HeaderMap) -> Response {
     use futures_util::stream::iter;
     use futures_util::StreamExt;
-    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let (mut start, mut end) = (0usize, data.len() - 1);
     if let Some(r) = range {
         let spec = r.trim_start_matches("bytes=");
@@ -88,7 +101,10 @@ async fn handler_slow(State(data): State<Arc<Vec<u8>>>, headers: HeaderMap) -> R
     Response::builder()
         .status(StatusCode::PARTIAL_CONTENT)
         .header(header::ETAG, "\"v1\"")
-        .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{}", data.len()))
+        .header(
+            header::CONTENT_RANGE,
+            format!("bytes {start}-{end}/{}", data.len()),
+        )
         .body(Body::from_stream(stream))
         .unwrap()
 }
@@ -113,10 +129,7 @@ async fn pause_resume_roundtrip() {
     let stream = stream.expect("daemon socket");
     let (r, mut w) = stream.into_split();
 
-    async fn send(
-        w: &mut tokio::net::unix::OwnedWriteHalf,
-        v: serde_json::Value,
-    ) {
+    async fn send(w: &mut tokio::net::unix::OwnedWriteHalf, v: serde_json::Value) {
         w.write_all(v.to_string().as_bytes()).await.unwrap();
         w.write_all(b"\n").await.unwrap();
     }
@@ -169,12 +182,16 @@ async fn pause_resume_roundtrip() {
     assert!(resumed_done, "resume tidak selesai");
     let got = std::fs::read(dir.join("pause.bin")).unwrap();
     assert_eq!(got.len(), SIZE);
-    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 17 + 3) as u8));
+    assert!(got
+        .iter()
+        .enumerate()
+        .all(|(i, b)| *b == (i * 17 + 3) as u8));
     assert!(!dir.join("pause.bin.rdm-part.json").exists());
 }
 
 #[tokio::test]
-async fn offer_via_socket_downloads_file() {    let url = serve().await;
+async fn offer_via_socket_downloads_file() {
+    let url = serve().await;
     let dir = std::env::temp_dir().join(format!("rdm-daemon-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let sock = dir.join("rdm.sock");
@@ -233,6 +250,9 @@ async fn offer_via_socket_downloads_file() {    let url = serve().await;
 
     let got = std::fs::read(dir.join("hasil.bin")).unwrap();
     assert_eq!(got.len(), SIZE);
-    assert!(got.iter().enumerate().all(|(i, b)| *b == (i * 17 + 3) as u8));
+    assert!(got
+        .iter()
+        .enumerate()
+        .all(|(i, b)| *b == (i * 17 + 3) as u8));
     assert!(!dir.join("hasil.bin.rdm-part.json").exists());
 }
