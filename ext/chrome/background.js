@@ -194,6 +194,35 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 // ---- takeover: cancel native download, route to RDM ----
 
+// Chrome often fires onCreated before the target filename is known
+// (google drive's extension-less download URLs, signed CDN links).
+// Park those and decide once onChanged reports the real filename.
+const pendingName = new Map(); // download id -> {url, referrer, timer}
+
+chrome.downloads.onChanged.addListener((delta) => {
+  const p = pendingName.get(delta.id);
+  if (!p) return;
+  if (delta.filename && delta.filename.current) {
+    pendingName.delete(delta.id);
+    clearTimeout(p.timer);
+    const name = delta.filename.current.split(/[\\/]/).pop() || "";
+    if (!extAllowed(name, p.url)) return; // not in the allow-list: keep it native
+    (async () => {
+      try {
+        await chrome.downloads.cancel(delta.id).catch(() => {});
+        await chrome.downloads.erase({ id: delta.id }).catch(() => {});
+        console.log("rdm: takeover (late name)", name);
+        await offer(p.url, name, p.referrer || "", true);
+      } catch (e) {
+        console.warn("rdm: late takeover failed", e);
+      }
+    })();
+  } else if (delta.state && delta.state.current !== "in_progress") {
+    pendingName.delete(delta.id); // finished/interrupted before a name arrived
+    clearTimeout(p.timer);
+  }
+});
+
 chrome.downloads.onCreated.addListener(async (item) => {
   try {
     if (!intercept) return;
@@ -203,7 +232,15 @@ chrome.downloads.onCreated.addListener(async (item) => {
     if (url.startsWith("blob:") || url.startsWith("data:")) return;
 
     const name = (item.filename || "").split(/[\\/]/).pop() || nameFromUrl(url);
-    if (!extAllowed(name, url)) return; // not in the RDM allow-list: let the browser handle it
+    if (!extAllowed(name, url)) {
+      // no extension anywhere yet (drive.usercontent.google.com & co):
+      // wait for Chrome to resolve the filename, then decide
+      if (!extOf(name, url) && !pendingName.has(item.id)) {
+        const timer = setTimeout(() => pendingName.delete(item.id), 60000);
+        pendingName.set(item.id, { url, referrer: item.referrer || "", timer });
+      }
+      return; // not in the RDM allow-list: let the browser handle it
+    }
 
     await chrome.downloads.cancel(item.id).catch(() => {});
     await chrome.downloads.erase({ id: item.id }).catch(() => {});

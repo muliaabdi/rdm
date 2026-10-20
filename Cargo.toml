@@ -2,6 +2,11 @@
 resolver = "2"
 members = ["crates/rdm-core", "crates/rdm-cli", "crates/rdm-daemon", "crates/rdm-host", "crates/rdm-ui"]
 
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

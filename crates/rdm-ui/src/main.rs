@@ -17,11 +17,7 @@ struct Ctx {
 }
 
 fn settings_path() -> PathBuf {
-    rdm_daemon::socket_path()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_default()
-        .join("settings.json")
+    rdm_daemon::settings_path()
 }
 
 fn read_settings() -> serde_json::Value {

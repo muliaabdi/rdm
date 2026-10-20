@@ -41,13 +41,18 @@ fn db_path() -> PathBuf {
     if let Ok(p) = std::env::var("RDM_DB") {
         return PathBuf::from(p);
     }
+    data_dir().join("rdm.db")
+}
+
+/// Persistent per-user data dir (db, settings); survives reboots unlike
+/// XDG_RUNTIME_DIR (tmpfs).
+pub fn data_dir() -> PathBuf {
     let mut p = std::env::var("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."));
     p.push(".local");
     p.push("share");
     p.push("rdm");
-    p.push("rdm.db");
     p
 }
 
@@ -246,18 +251,21 @@ pub async fn run_at(path: PathBuf, db_path: PathBuf) -> Result<()> {
 }
 
 /// Shared settings file, also written by rdm-ui (dir/segments/lang/intercept_ext).
-fn settings_path() -> PathBuf {
-    socket_path()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_default()
-        .join("settings.json")
+/// Lives in the persistent data dir; falls back to the legacy location next to
+/// the socket (tmpfs) when only that exists, so nothing is lost on upgrade.
+pub fn settings_path() -> PathBuf {
+    data_dir().join("settings.json")
 }
 
 fn settings_json() -> serde_json::Value {
-    std::fs::read(settings_path())
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
+    let p = settings_path();
+    let b = std::fs::read(&p).ok().or_else(|| {
+        let legacy = socket_path()
+            .parent()
+            .map(|d| d.join("settings.json"))?;
+        std::fs::read(legacy).ok()
+    });
+    b.and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_else(|| json!({}))
 }
 

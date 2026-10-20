@@ -9,7 +9,8 @@ EXT_ID="${1:-enhihiehgiamccjmplnbpgjfbcglkaci}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOST_NAME="com.rdm.host"
 
-BIN="$ROOT/target/release/rdm-host"
+BIN="${RDM_HOST_BIN:-}"
+[ -n "$BIN" ] || BIN="$ROOT/target/release/rdm-host"
 [ -x "$BIN" ] || BIN="$ROOT/target/debug/rdm-host"
 [ -x "$BIN" ] || { echo "error: build rdm-host first (cargo build)" >&2; exit 1; }
 
@@ -29,4 +30,6 @@ for d in \
 done
 
 echo "installed: host=$BIN origin=chrome-extension://$EXT_ID/"
-echo "start daemon with: $ROOT/target/debug/rdm-daemon"
+if [ -z "$RDM_HOST_BIN" ]; then
+  echo "start daemon with: $ROOT/target/debug/rdm-daemon"
+fi
