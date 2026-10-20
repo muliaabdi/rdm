@@ -211,6 +211,20 @@ impl App {
         .flatten()
     }
 
+    /// Newest non-terminal job id already downloading `url`, if any.
+    fn db_active_by_url(&self, url: &str) -> Option<u64> {
+        let db = self.db.lock().ok()?;
+        db.query_row(
+            "SELECT id FROM jobs WHERE url=?1 AND status IN \
+             ('running','queued','resolving','confirming','paused') \
+             ORDER BY id DESC LIMIT 1",
+            [url],
+            |r| r.get::<_, i64>(0),
+        )
+        .ok()
+        .map(|id| id as u64)
+    }
+
     /// (status, out_path) of a job row, used by delete cleanup.
     fn db_job_row(&self, id: u64) -> Option<(String, Option<String>)> {
         let db = self.db.lock().ok()?;
@@ -451,6 +465,7 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
     match v.get("t").and_then(|t| t.as_str()) {
         Some("offer") => {
             let offer: Offer = serde_json::from_value(v).context("bad offer")?;
+            tracing::info!(target: "ext", "offer arrived: {}", offer.url);
             let id = accept_job(app, offer).await?;
             Ok(Some(json!({"t":"accepted","id":id}).to_string()))
         }
@@ -577,6 +592,7 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
         }
         Some("offer-page") => {
             let offer: Offer = serde_json::from_value(v).context("bad offer-page")?;
+            tracing::info!(target: "ext", "offer-page arrived: {}", offer.url);
             let id = accept_job(app, offer).await?;
             Ok(Some(json!({"t":"accepted","id":id}).to_string()))
         }
@@ -776,6 +792,18 @@ fn ui_binary() -> Option<PathBuf> {
 }
 
 async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
+    let t0 = std::time::Instant::now();
+    // Repeated clicks (popup not up yet -> user clicks again) must not spawn
+    // duplicate jobs: if this URL is already in flight, refocus its popup.
+    if let Some(id) = app.db_active_by_url(&offer.url) {
+        tracing::info!(target: "ext", "offer dedup: {} already active as job {id}", offer.url);
+        if ui_running() {
+            let _ = app.events.send(json!({"t":"show-job","id":id}).to_string());
+        } else {
+            bring_ui(&app);
+        }
+        return Ok(id);
+    }
     let id = app.next_id.fetch_add(1, Ordering::SeqCst);
     let spec = serde_json::to_string(&offer_json(&offer))?;
     let now = std::time::SystemTime::now()
@@ -857,6 +885,7 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
     // Only launch the UI when it is not running at all.
     if ui_running() {
         let _ = app.events.send(json!({"t":"show-job","id":id}).to_string());
+        tracing::info!(target: "ext", "job {id}: show-job sent {}ms after offer", t0.elapsed().as_millis());
     } else {
         bring_ui(&app);
     }

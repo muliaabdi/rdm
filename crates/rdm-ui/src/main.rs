@@ -272,6 +272,25 @@ async fn connect_daemon() -> anyhow::Result<UnixStream> {
 /// Compact "Download details" popup window for background offers (video pill,
 /// browser context menu). Creating/focusing it must never raise the main
 /// window — the user keeps browsing.
+fn build_detail(a: &tauri::AppHandle, visible: bool) -> tauri::Result<tauri::WebviewWindow> {
+    WebviewWindowBuilder::new(a, "detail", WebviewUrl::App("index.html".into()))
+        .title("RDM")
+        .inner_size(470.0, 400.0)
+        .min_inner_size(390.0, 320.0)
+        .resizable(true)
+        .always_on_top(true)
+        .skip_taskbar(false)
+        .visible(visible)
+        .build()
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
 fn show_detail_window(app: &tauri::AppHandle, id: u64) {
     DETAIL_ID.store(id, Ordering::SeqCst);
     let a = app.clone();
@@ -280,23 +299,17 @@ fn show_detail_window(app: &tauri::AppHandle, id: u64) {
             let _ = w.emit("detail-open", json!({"id": id}));
             let _ = w.show();
             let _ = w.set_focus();
-            return;
-        }
-        let built = WebviewWindowBuilder::new(&a, "detail", WebviewUrl::App("index.html".into()))
-            .title("RDM")
-            .inner_size(470.0, 400.0)
-            .min_inner_size(390.0, 320.0)
-            .resizable(true)
-            .always_on_top(true)
-            .skip_taskbar(false)
-            .build();
-        match built {
-            Ok(w) => {
-                let _ = w.show();
-                let _ = w.set_focus();
+        } else {
+            // pre-create failed or the window was destroyed; rebuild it
+            match build_detail(&a, true) {
+                Ok(w) => {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                Err(e) => eprintln!("rdm-ui: detail window failed: {e}"),
             }
-            Err(e) => eprintln!("rdm-ui: detail window failed: {e}"),
         }
+        eprintln!("rdm-ui: [{}] detail popup shown for job {id}", now_ms());
     });
     if let Err(e) = res {
         eprintln!("rdm-ui: detail window dispatch failed: {e}");
@@ -628,6 +641,11 @@ fn main() {
                     eprintln!("rdm-ui socket loop: {e}");
                 }
             });
+            // pre-build the compact detail popup hidden: browser offers then
+            // pop it with show()+focus() only, no webkit init on the click path
+            if let Err(e) = build_detail(app.handle(), false) {
+                eprintln!("rdm-ui: detail pre-create failed: {e}");
+            }
             Ok(())
         })
         // closing the window keeps RDM available in the tray; quit from there

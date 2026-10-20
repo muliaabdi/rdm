@@ -126,7 +126,21 @@ function cdFilename(cd) {
   return m ? decodeURIComponent(m[1]) : "";
 }
 
+// Repeated clicks (no visible feedback yet -> user clicks again) must not
+// create duplicate jobs; the daemon dedups active URLs too, this skips the
+// round trip entirely.
+const offerRecent = new Map(); // key -> ts
+function offerDup(key) {
+  const now = Date.now();
+  for (const [k, ts] of offerRecent) if (now - ts > 20000) offerRecent.delete(k);
+  const dup = now - (offerRecent.get(key) || 0) < 2000;
+  offerRecent.set(key, now);
+  return dup;
+}
+
 async function offer(url, filename, referer, confirm) {
+  if (offerDup(url)) return;
+  ensurePort().postMessage({ t: "log", msg: "click: " + url });
   const cookie = await cookieHeader(url);
   ensurePort().postMessage({
     t: "offer",
@@ -142,6 +156,8 @@ async function offer(url, filename, referer, confirm) {
 
 // Page-level offer: resolve the page via yt-dlp and download the best media.
 async function pageOffer(url, height, audio) {
+  if (offerDup(url + "|" + (height || 0) + "|" + (audio ? 1 : 0))) return;
+  ensurePort().postMessage({ t: "log", msg: "page-click: " + url });
   const cookie = await cookieHeader(url);
   ensurePort().postMessage({
     t: "offer-page",
