@@ -23,6 +23,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 
 use rdm_core::{download, job_from_url, Job, Limits, Progress};
 
+pub mod gallery;
 pub mod ytdlp;
 
 pub fn socket_path() -> PathBuf {
@@ -62,6 +63,10 @@ fn default_out_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."));
     p.push("Downloads");
     if p.is_dir() {
+        return p;
+    }
+    // recreate the standard folder instead of dumping files into the cwd
+    if std::fs::create_dir_all(&p).is_ok() {
         p
     } else {
         PathBuf::from(".")
@@ -509,22 +514,66 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             let url = v["url"].as_str().context("url required")?.to_string();
             let cookie = v["cookie"].as_str().map(str::to_string);
             let ua = v["ua"].as_str().map(str::to_string);
-            let info = tokio::time::timeout(
+            let media = tokio::time::timeout(
                 Duration::from_secs(120),
                 ytdlp::extract(&url, cookie.as_deref(), ua.as_deref()),
             )
-            .await
-            .context("extract timeout")??;
-            Ok(Some(
-                json!({
-                    "t":"formats",
-                    "url": info.webpage_url,
-                    "title": info.title,
-                    "duration": info.duration,
-                    "formats": info.formats,
-                })
-                .to_string(),
-            ))
+            .await;
+            match media {
+                Ok(Ok(info)) => Ok(Some(
+                    json!({
+                        "t":"formats",
+                        "url": info.webpage_url,
+                        "title": info.title,
+                        "duration": info.duration,
+                        "formats": info.formats,
+                    })
+                    .to_string(),
+                )),
+                media_err => {
+                    // yt-dlp failed: try a picture-gallery extractor before
+                    // giving up, so galleries are first-class in Detect too
+                    let g = if gallery::installed() {
+                        Some(
+                            tokio::time::timeout(
+                                Duration::from_secs(120),
+                                gallery::extract(&url, ua.as_deref()),
+                            )
+                            .await,
+                        )
+                    } else {
+                        None
+                    };
+                    match g {
+                        Some(Ok(Ok(g))) => Ok(Some(
+                            json!({
+                                "t":"formats",
+                                "url": url,
+                                "title": g.title,
+                                "duration": null,
+                                "gallery": true,
+                                "files": g.items.len(),
+                                "formats": [{
+                                    "id":"gallery", "ext":"", "height":null,
+                                    "vcodec":"none", "acodec":"none",
+                                    "filesize":null, "progressive":true
+                                }],
+                            })
+                            .to_string(),
+                        )),
+                        _ => {
+                            // surface the yt-dlp failure; the gallery attempt
+                            // was only a bonus
+                            let msg = match media_err {
+                                Ok(Err(e)) => format!("{e:#}"),
+                                Err(_) => "extract timeout".to_string(),
+                                Ok(Ok(_)) => "extraction failed".to_string(),
+                            };
+                            Err(anyhow::anyhow!("{msg}"))
+                        }
+                    }
+                }
+            }
         }
         Some("offer-page") => {
             let offer: Offer = serde_json::from_value(v).context("bad offer-page")?;
@@ -772,16 +821,8 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
             );
             return Ok(id);
         }
-        // Background offers (video pill, context menu): open the job's detail
-        // pane in place — never raise/steal focus while the user is browsing.
-        // Only launch the UI when it is not running at all.
-        if ui_running() {
-            let _ = app
-                .events
-                .send(json!({"t":"show-job","id":id}).to_string());
-        } else {
-            bring_ui(&app);
-        }
+        // intercepted-browser confirm path returned above; direct background
+        // offers and page offers share the show-job tail below
         RunnerSpec::Direct(job)
     };
     if let RunnerSpec::Page(o, _) = &runner {
@@ -810,6 +851,14 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
                 Ok(())
             }
         });
+    }
+    // Background offers (video pill, context menu): open the job's detail
+    // pane in place — never raise/steal focus while the user is browsing.
+    // Only launch the UI when it is not running at all.
+    if ui_running() {
+        let _ = app.events.send(json!({"t":"show-job","id":id}).to_string());
+    } else {
+        bring_ui(&app);
     }
     // queue when all download slots are busy (confirming jobs take no slot)
     if running_count(&app) >= max_parallel() {
@@ -1074,21 +1123,27 @@ fn delete_job(app: &Arc<App>, id: u64, files: bool) -> Result<()> {
             if status != "completed" {
                 if let Some(out) = out.filter(|p| !p.is_empty()) {
                     let path = PathBuf::from(&out);
-                    let _ = std::fs::remove_file(format!("{out}.rdm-part.json"));
-                    let _ = std::fs::remove_file(format!("{out}.rdm-hls.json"));
-                    let _ = std::fs::remove_file(&path);
-                    // page jobs split into {stem}.v.ext / {stem}.a.ext parts
-                    if let (Some(dir), Some(stem)) = (
-                        path.parent(),
-                        path.file_stem().map(|s| s.to_string_lossy().to_string()),
-                    ) {
-                        for pat in [format!("{stem}.v.*"), format!("{stem}.a.*")] {
-                            if let Ok(rd) = std::fs::read_dir(dir) {
-                                for e in rd.flatten() {
-                                    let name = e.file_name().to_string_lossy().to_string();
-                                    let base = name.trim_end_matches(".rdm-part.json").to_string();
-                                    if glob_like(&pat, &base) || glob_like(&pat, &name) {
-                                        let _ = std::fs::remove_file(e.path());
+                    if path.is_dir() {
+                        // gallery jobs point at their own folder
+                        let _ = std::fs::remove_dir_all(&path);
+                    } else {
+                        let _ = std::fs::remove_file(format!("{out}.rdm-part.json"));
+                        let _ = std::fs::remove_file(format!("{out}.rdm-hls.json"));
+                        let _ = std::fs::remove_file(&path);
+                        // page jobs split into {stem}.v.ext / {stem}.a.ext parts
+                        if let (Some(dir), Some(stem)) = (
+                            path.parent(),
+                            path.file_stem().map(|s| s.to_string_lossy().to_string()),
+                        ) {
+                            for pat in [format!("{stem}.v.*"), format!("{stem}.a.*")] {
+                                if let Ok(rd) = std::fs::read_dir(dir) {
+                                    for e in rd.flatten() {
+                                        let name = e.file_name().to_string_lossy().to_string();
+                                        let base =
+                                            name.trim_end_matches(".rdm-part.json").to_string();
+                                        if glob_like(&pat, &base) || glob_like(&pat, &name) {
+                                            let _ = std::fs::remove_file(e.path());
+                                        }
                                     }
                                 }
                             }
@@ -1292,22 +1347,42 @@ async fn run_page(
         let mut kill_extract = kill_rx.clone();
         let extraction = ytdlp::extract(&offer.url, offer.cookie.as_deref(), offer.ua.as_deref());
         tokio::pin!(extraction);
-        tokio::select! {
+        let media = tokio::select! {
             res = &mut extraction => res,
             _ = kill_extract.changed() => {
                 cancel_page(&app, id).await;
                 return;
             }
+        };
+        match media {
+            Ok(i) => Some(i),
+            Err(media_err) => {
+                // yt-dlp cannot do picture galleries (pixiv, danbooru, imgur
+                // albums, ...): hand the page to gallery-dl before failing
+                if gallery::installed() {
+                    let g = gallery::extract(&offer.url, offer.ua.as_deref());
+                    tokio::pin!(g);
+                    tokio::select! {
+                        res = &mut g => if let Ok(g) = res {
+                            run_gallery(app, id, &offer, g, kill_rx).await;
+                            return;
+                        },
+                        _ = kill_extract.changed() => {
+                            cancel_page(&app, id).await;
+                            return;
+                        }
+                    }
+                }
+                app.db_update(id, 0, "failed", Some(&format!("{media_err:#}")), None);
+                finish("failed", Some(format!("{media_err:#}")));
+                app.ctl.lock().unwrap().remove(&id);
+                return;
+            }
         }
     };
     let info = match info {
-        Ok(i) => i,
-        Err(e) => {
-            app.db_update(id, 0, "failed", Some(&format!("{e:#}")), None);
-            finish("failed", Some(format!("{e:#}")));
-            app.ctl.lock().unwrap().remove(&id);
-            return;
-        }
+        Some(i) => i,
+        None => return,
     };
     if *kill_rx.borrow() {
         cancel_page(&app, id).await;
@@ -1464,6 +1539,95 @@ async fn cancel_page(app: &Arc<App>, id: u64) {
         .events
         .send(json!({"t":intent,"id":id,"done":0}).to_string());
     app.db_update(id, 0, intent, None, None);
+    app.ctl.lock().unwrap().remove(&id);
+}
+
+/// Gallery download (gallery-dl resolved): every file goes through the
+/// segmented engine one by one into a single folder; progress is the running
+/// byte total, so pause/resume simply skips files that already exist.
+#[allow(clippy::too_many_arguments)]
+async fn run_gallery(
+    app: Arc<App>,
+    id: u64,
+    offer: &Offer,
+    g: gallery::Gallery,
+    mut kill_rx: watch::Receiver<bool>,
+) {
+    let _ = app
+        .events
+        .send(json!({"t":"started","id":id,"size":null}).to_string());
+    let _ = app
+        .events
+        .send(json!({"t":"status","id":id,"status":"resolving"}).to_string());
+
+    let n = g.items.len();
+    let base = if g.title.trim().is_empty() {
+        host_of(&offer.url)
+    } else {
+        rdm_core::engine::sanitize_filename(g.title.trim())
+    };
+    // ".jpg" sample routes the folder into the Images category override
+    let dir = dir_for(offer.dir.as_deref(), &format!("{base}.jpg"));
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        page_fail(&app, id, anyhow::anyhow!("create folder: {e}")).await;
+        return;
+    }
+    let label = if n == 1 {
+        format!("{base} (1 file)")
+    } else {
+        format!("{base} ({n} files)")
+    };
+    let outp = dir.to_string_lossy().to_string();
+    app.db_exec(move |db| {
+        db.execute(
+            "UPDATE jobs SET filename=?1, out_path=?2 WHERE id=?3",
+            rusqlite::params![label, outp, id as i64],
+        )?;
+        Ok(())
+    });
+    db_status(&app, id, "running");
+    let _ = app
+        .events
+        .send(json!({"t":"status","id":id,"status":"running"}).to_string());
+
+    let mut done: u64 = 0;
+    for (i, (url, name)) in g.items.into_iter().enumerate() {
+        // resume: files already on disk (non-empty) are skipped and counted
+        let fname = if n > 1 {
+            format!("{:04}_{}", i + 1, name)
+        } else {
+            name
+        };
+        let path = dir.join(&fname);
+        if let Ok(md) = std::fs::metadata(&path) {
+            if md.len() > 0 {
+                done += md.len();
+                continue;
+            }
+        }
+        if *kill_rx.borrow() {
+            cancel_page(&app, id).await;
+            return;
+        }
+        let job = job_for(&url, path, offer, 4, app.limiter.clone());
+        match run_media(&app, id, job, &mut kill_rx, done, None).await {
+            Ok(st) => {
+                done += st.size.unwrap_or(st.done);
+            }
+            Err(e) => {
+                page_fail(&app, id, e).await;
+                return;
+            }
+        }
+        if *kill_rx.borrow() {
+            cancel_page(&app, id).await;
+            return;
+        }
+    }
+    let _ = app
+        .events
+        .send(json!({"t":"done","id":id,"size":done,"done":done}).to_string());
+    app.db_update(id, done, "completed", None, Some(done));
     app.ctl.lock().unwrap().remove(&id);
 }
 

@@ -458,6 +458,7 @@ const I18N = {
     dlg_add_title: "Add download URL",
     ph_url: "file link, or a video page (YouTube, etc.)",
     btn_detect: "Detect quality", btn_cancel: "Cancel", btn_download: "Download",
+    opt_gallery: "{n} files (gallery)",
     hint_page: "Video page detected — click Detect.",
     hint_detecting: "Detecting… (a few seconds)",
     hint_fail: "Detection failed: {e}",
@@ -509,6 +510,7 @@ const I18N = {
     dlg_add_title: "Tambah URL unduhan",
     ph_url: "tautan berkas, atau halaman video (YouTube, dll.)",
     btn_detect: "Deteksi kualitas", btn_cancel: "Batal", btn_download: "Unduh",
+    opt_gallery: "{n} berkas (galeri)",
     hint_page: "Terdeteksi halaman video — klik Deteksi.",
     hint_detecting: "Mendeteksi… (beberapa detik)",
     hint_fail: "Gagal mendeteksi: {e}",
@@ -1263,6 +1265,20 @@ $("b-add").onclick = () => {
   hint(isPageUrl($("m-url").value) ? t("hint_page") : "");
 
   const renderQuality = (m) => {
+    if (m.gallery) {
+      // picture gallery (gallery-dl): one choice — take every file
+      openModal(`<h3>${t("dlg_quality_title")}</h3>
+        <div class="mhint">${esc(m.title || m.url || "")}</div>
+        <select id="m-q"><option value="gallery">${esc(t("opt_gallery", { n: m.files || 0 }))}</option></select>
+        <div class="btns"><button id="m-qcancel">${t("btn_cancel")}</button><button id="m-qok" class="pri">${t("btn_download")}</button></div>`);
+      $("m-qcancel").onclick = closeModal;
+      $("m-qok").onclick = async () => {
+        try { await invoke("add_page", { url: m.url, height: 1080, audioOnly: false }); }
+        catch (e) { toast(trErr(e)); }
+        closeModal();
+      };
+      return;
+    }
     const fmts = (m.formats || []).filter((f) => f.vcodec !== "none" && f.height);
     const heights = [...new Set(fmts.map((f) => f.height))].sort((a, b) => b - a);
     const opts = heights.map((h) => {
