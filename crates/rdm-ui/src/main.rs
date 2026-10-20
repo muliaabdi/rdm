@@ -240,7 +240,20 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
         };
         let (r, w) = stream.into_split();
         let (tx, mut rx) = mpsc::channel::<String>(64);
-        *ctx.tx.lock().unwrap() = Some(tx);
+        *ctx.tx.lock().unwrap() = Some(tx.clone());
+
+        // keep the tray's active-downloads section fresh (snapshot every 2s)
+        let tick_tx = tx.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(2));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                if tick_tx.send(json!({"t":"list"}).to_string()).await.is_err() {
+                    return;
+                }
+            }
+        });
 
         let mut reader = BufReader::new(r);
         let writer = tokio::spawn(async move {
@@ -261,6 +274,10 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
                 Ok(_) => {
                     let v: serde_json::Value =
                         serde_json::from_str(line.trim()).unwrap_or_else(|_| json!({"t":"raw"}));
+                    if v["t"].as_str() == Some("jobs") {
+                        let jobs = v["jobs"].as_array().cloned().unwrap_or_default();
+                        update_tray_jobs(&app, &jobs);
+                    }
                     let _ = app.emit("rdm", v);
                 }
                 Err(_) => break,
@@ -316,6 +333,98 @@ fn diag(msg: String) {
 }
 
 static TRAY_OK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static TRAY_FP: Mutex<String> = Mutex::new(String::new());
+
+/// One line in the tray's active-downloads section.
+struct TrayJob {
+    id: i64,
+    label: String,
+}
+
+/// Rebuild the tray menu from a `{"t":"jobs"}` snapshot. Cheap no-op when
+/// nothing visible changed (fingerprint of id + coarse progress).
+fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
+    let app = app.clone();
+    let en = language();
+    let active = ["queued", "resolving", "running", "paused"];
+    let mut list: Vec<TrayJob> = Vec::new();
+    let mut fp = String::new();
+    for j in jobs {
+        let status = j["status"].as_str().unwrap_or("");
+        if !active.contains(&status) {
+            continue;
+        }
+        let id = j["id"].as_i64().unwrap_or(0);
+        let name = j["filename"].as_str().unwrap_or("?");
+        let name: String = name.chars().take(42).collect();
+        let done = j["done"].as_u64().unwrap_or(0);
+        let size = j.get("size").and_then(|s| s.as_u64()).filter(|s| *s > 0);
+        let text = match (status, size) {
+            ("queued", _) => en.then_some("queued").unwrap_or("antre").to_string(),
+            ("paused", _) => en.then_some("paused").unwrap_or("jeda").to_string(),
+            ("resolving", _) => "…".into(),
+            (_, Some(sz)) => format!("{}%", (done * 100 / sz).min(100)),
+            _ => format!("{:.1} MB", done as f64 / 1e6),
+        };
+        let label = format!("{name} — {text}");
+        fp.push_str(&format!("{id}:{status}:{text};"));
+        list.push(TrayJob { id, label });
+    }
+    let n = list.len();
+    let mut guard = TRAY_FP.lock().unwrap();
+    if *guard == fp {
+        return;
+    }
+    *guard = fp.clone();
+    drop(guard);
+
+    let handle = app.clone();
+    let _ = handle.run_on_main_thread(move || {
+        use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+        let Some(tray) = app.tray_by_id("rdm-tray") else { return };
+        let (m_show, m_quit, m_head) = if en {
+            ("Show", "Quit", format!("Active downloads ({n})"))
+        } else {
+            ("Tampilkan", "Keluar", format!("Unduhan aktif ({n})"))
+        };
+        let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<_>>> = Vec::new();
+        if !list.is_empty() {
+            let head = MenuItem::with_id(&app, "rdmj-head", m_head, false, None::<&str>)
+                .ok()
+                .map(|i| Box::new(i) as Box<dyn tauri::menu::IsMenuItem<_>>);
+            let sep = PredefinedMenuItem::separator(&app)
+                .ok()
+                .map(|i| Box::new(i) as Box<dyn tauri::menu::IsMenuItem<_>>);
+            if let Some(h) = head {
+                items.push(h);
+            }
+            for j in &list {
+                if let Ok(i) = MenuItem::with_id(&app, format!("rdmj-{}", j.id), &j.label, true, None::<&str>) {
+                    items.push(Box::new(i));
+                }
+            }
+            if let Some(s) = sep {
+                items.push(s);
+            }
+        }
+        let show_i = MenuItem::with_id(&app, "show", m_show, true, None::<&str>).ok();
+        let quit_i = MenuItem::with_id(&app, "quit", m_quit, true, None::<&str>).ok();
+        if let (Some(s), Some(q)) = (show_i, quit_i) {
+            items.push(Box::new(s));
+            items.push(Box::new(q));
+        }
+        let refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = items.iter().map(|b| b.as_ref()).collect();
+        if let Ok(menu) = Menu::with_items(&app, &refs) {
+            let _ = tray.set_menu(Some(menu));
+        }
+        let tip = if n > 0 {
+            format!("RDM — {n} {}", if en { "active" } else { "aktif" })
+        } else {
+            "RDM".into()
+        };
+        let _ = tray.set_tooltip(Some(tip));
+    });
+}
 
 /// Show, unminimize and focus the main window (used by the tray and the daemon).
 fn show_main(app: &tauri::AppHandle) {
@@ -351,10 +460,20 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .tooltip(tip)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, e| match e.id().as_ref() {
-            "show" => show_main(app),
-            "quit" => app.exit(0),
-            _ => {}
+        .on_menu_event(|app, e| {
+            let id = e.id().as_ref().to_string();
+            if let Some(jid) = id.strip_prefix("rdmj-") {
+                show_main(app);
+                if let Ok(n) = jid.parse::<i64>() {
+                    let _ = app.emit("rdm", json!({"t":"tray-select","id":n}));
+                }
+                return;
+            }
+            match id.as_str() {
+                "show" => show_main(app),
+                "quit" => app.exit(0),
+                _ => {}
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
