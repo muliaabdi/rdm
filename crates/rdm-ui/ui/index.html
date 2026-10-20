@@ -277,14 +277,37 @@
   #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: var(--txt2); cursor: pointer; }
   #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
   #dlg .ftypes.all .fchk:nth-child(n+2) { opacity: .4; }
-  /* category subfolders: compact 2-col cards under the base-dir field */
-  #dlg .catwrap { margin: 2px 0 12px; }
-  #dlg .cathint { font-size: 11px; color: var(--dim); margin: 0 0 8px; line-height: 1.35; }
-  #dlg .catgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+  /* category folder overrides: only customized ones are listed */
+  #dlg .cathint { font-size: 11px; color: var(--dim); margin: 0 0 10px; line-height: 1.35; }
+  #dlg .ovrow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  #dlg .ovrow > i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  #dlg .ovrow > span { width: 84px; flex: none; font-size: 11.5px; color: var(--txt2); }
+  #dlg .ovrow input { margin: 0; }
+  #dlg .ovdel {
+    flex: none; width: 26px; height: 26px; padding: 0; cursor: default;
+    border: 1px solid var(--line2); background: var(--btn-bg); color: var(--dim); border-radius: 7px;
+  }
+  #dlg .ovdel:hover { color: var(--red); border-color: var(--red); background: var(--btn-bg); }
   #dlg .cfld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   #dlg .cfld span { font-size: 11px; color: var(--txt2); display: flex; align-items: center; gap: 6px; }
   #dlg .cfld span i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   #dlg .cfld input { margin: 0; padding: 6px 9px; }
+
+  /* settings dialog: tabs + compact number grid */
+  #dlg.settings { width: 540px; }
+  #dlg .tabs {
+    display: flex; gap: 2px; margin: 0 0 12px; border-bottom: 1px solid var(--line); flex: none;
+  }
+  #dlg .tabs button {
+    padding: 7px 12px; border: 0; cursor: default; margin-bottom: -1px;
+    background: none; color: var(--dim);
+    border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0;
+  }
+  #dlg .tabs button:hover { color: var(--txt); background: var(--btn-hi); }
+  #dlg .tabs button.on { color: var(--txt); border-bottom-color: var(--accent); font-weight: 600; }
+  #dlg .tabpane { display: none; }
+  #dlg .tabpane.on { display: block; }
+  #dlg .nums { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -442,9 +465,11 @@ const I18N = {
     dlg_settings_title: "Settings", fld_dir: "Folder", fld_segments: "Segments",
     ph_dir: "default: ~/Downloads", fld_lang: "Language", fld_theme: "Theme",
     opt_system: "System", opt_light: "Light", opt_dark: "Dark", btn_save: "Save",
-    sec_downloads: "Downloads", sec_takeover: "Browser takeover", sec_interface: "Interface",
     fld_speed: "Speed limit", ph_speed: "0 = unlimited",
-    fld_cats: "Category folders", hint_cats: "Subfolder per category. A name becomes a folder under the main dir; an absolute path puts it elsewhere; empty = main dir.",
+    fld_cats: "Category folders",
+    hint_cats: "By default every file goes straight into the main folder. Add a category to store it in its own subfolder (a name, or an absolute path).",
+    ph_cat_dir: "folder name or /abs/path", ph_pick_cat: "+ Add category folder", btn_remove: "Remove",
+    tab_downloads: "Downloads", tab_browser: "Browser", tab_interface: "Interface",
     fld_ytdlp: "Update yt-dlp automatically",
     err_url_http: "URL must be http(s)",
     err_not_connected: "not connected to the daemon",
@@ -491,9 +516,11 @@ const I18N = {
     dlg_settings_title: "Pengaturan", fld_dir: "Folder", fld_segments: "Segmen",
     ph_dir: "bawaan: ~/Downloads", fld_lang: "Bahasa", fld_theme: "Tema",
     opt_system: "Sistem", opt_light: "Terang", opt_dark: "Gelap", btn_save: "Simpan",
-    sec_downloads: "Unduhan", sec_takeover: "Pengambilalihan browser", sec_interface: "Antarmuka",
     fld_speed: "Batas kecepatan", ph_speed: "0 = tanpa batas",
-    fld_cats: "Folder kategori", hint_cats: "Subfolder per kategori. Nama jadi folder di bawah folder utama; path absolut untuk lokasi lain; kosong = folder utama.",
+    fld_cats: "Folder kategori",
+    hint_cats: "Bawaannya semua berkas langsung ke folder utama. Tambahkan kategori untuk menyimpannya di subfolder tersendiri (nama folder atau path absolut).",
+    ph_cat_dir: "nama folder atau /path/absolut", ph_pick_cat: "+ Tambah folder kategori", btn_remove: "Hapus",
+    tab_downloads: "Unduhan", tab_browser: "Browser", tab_interface: "Antarmuka",
     fld_ytdlp: "Perbarui yt-dlp otomatis",
     err_url_http: "URL harus http(s)",
     err_not_connected: "belum terhubung ke daemon",
@@ -1193,7 +1220,7 @@ setInterval(() => {
 let lastFocus = null;
 function openModal(html) {
   lastFocus = document.activeElement;
-  $("dlg").classList.remove("wide", "hasbody");
+  $("dlg").classList.remove("wide", "hasbody", "settings");
   $("dlg").innerHTML = html;
   $("modal").classList.add("open");
   const f = $("dlg").querySelector("input, select, button:not(.pri)");
@@ -1303,8 +1330,6 @@ const FTYPES = [
 ];
 const EXT2CAT = new Map(FTYPES.flatMap(([id, , str]) => str.split(" ").map((x) => [x, id])));
 // folder-category keys must match rdm_core::category_of (settings.categories);
-// distinct from the sidebar CATS above (list filters)
-// folder-category keys must match rdm_core::category_of (settings.categories);
 // distinct from the sidebar CATS above (list filters). [id, i18n key, dot color]
 const FOLDER_CATS = [
   ["videos", "ft_videos", "#d05050"],
@@ -1324,26 +1349,41 @@ $("b-options").onclick = async () => {
   // show the effective allow-list: known-category extensions too, otherwise a
   // lone "pdf" would vanish (its category needs every doc ext to check)
   const extras = allOn ? "" : list.join(", ");
-  const cats = s.categories || {};
+  // category-folder overrides: only the ones actually customized are listed;
+  // default behavior puts every file straight into the main folder
+  const catdirs = {};
+  for (const [id] of FOLDER_CATS) {
+    const v = ((s.categories || {})[id] || "").trim();
+    if (v) catdirs[id] = v;
+  }
   openModal(`<h3>${t("dlg_settings_title")}</h3>
-    <div class="dlgbody">
-    <div class="sec">${t("sec_downloads")}</div>
-    <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
-    <div class="catwrap">
-      <div class="cathint">${t("hint_cats")}</div>
-      <div class="catgrid">${FOLDER_CATS.map(([id, key, col]) => `<label class="cfld"><span><i style="background:${col}"></i>${t(key)}</span><input id="c-${id}" value="${esc(cats[id] || "")}" placeholder="${esc(t(key))}" spellcheck="false" autocomplete="off"></label>`).join("")}</div>
+    <div class="tabs">
+      <button type="button" data-pane="p-dl" class="on">${t("tab_downloads")}</button>
+      <button type="button" data-pane="p-br">${t("tab_browser")}</button>
+      <button type="button" data-pane="p-ui">${t("tab_interface")}</button>
     </div>
-    <div class="fld"><label>${t("fld_segments")}</label><input id="o-seg" class="narrow" type="number" min="1" max="32" value="${s.segments || 8}"></div>
-    <div class="fld"><label>${t("fld_parallel")}</label><input id="o-par" class="narrow" type="number" min="1" max="16" value="${s.max_parallel || 3}"></div>
-    <div class="fld"><label>${t("fld_speed")}</label><input id="o-speed" class="narrow" type="number" min="0" step="64" value="${s.speed_limit || 0}"><span class="dim">KiB/s</span></div>
-    <div class="sec">${t("sec_takeover")}</div>
+    <div class="dlgbody">
+    <div class="tabpane on" id="p-dl">
+    <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
+    <div class="nums">
+      <label class="cfld"><span>${t("fld_segments")}</span><input id="o-seg" type="number" min="1" max="32" value="${s.segments || 8}"></label>
+      <label class="cfld"><span>${t("fld_parallel")}</span><input id="o-par" type="number" min="1" max="16" value="${s.max_parallel || 3}"></label>
+      <label class="cfld"><span>${t("fld_speed")} (KiB/s)</span><input id="o-speed" type="number" min="0" step="64" value="${s.speed_limit || 0}"></label>
+    </div>
+    <div class="sec">${t("fld_cats")}</div>
+    <p class="cathint">${t("hint_cats")}</p>
+    <div id="ovlist"></div>
+    <div id="ovadd"></div>
+    </div>
+    <div class="tabpane" id="p-br">
     <div class="fld"><label>${t("fld_ftype")}</label>
       <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
         <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
         ${FTYPES.map(([id, key, str]) => `<label class="fchk"><input type="checkbox" id="ft-${id}"${str.split(" ").every((x) => list.includes(x)) ? " checked" : ""}${allOn ? " disabled" : ""}><span>${t(key)}</span></label>`).join("")}
       </div></div>
     <div class="fld"><label>${t("fld_extra")}</label><input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc(extras)}" spellcheck="false" autocomplete="off"></div>
-    <div class="sec">${t("sec_interface")}</div>
+    </div>
+    <div class="tabpane" id="p-ui">
     <div class="fld"><label>${t("fld_lang")}</label><select id="o-lang">
       <option value="en"${lang === "en" ? " selected" : ""}>English</option>
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
@@ -1355,8 +1395,48 @@ $("b-options").onclick = async () => {
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}><span>${t("fld_notify")}</span></label></div>
     <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-ytdlp" type="checkbox"${s.ytdlp_update !== false ? " checked" : ""}><span>${t("fld_ytdlp")}</span></label></div>
     </div>
+    </div>
     <div class="btns"><button id="o-cancel">${t("btn_cancel")}</button><button id="o-ok" class="pri">${t("btn_save")}</button></div>`);
-  $("dlg").classList.add("hasbody");
+  $("dlg").classList.add("hasbody", "settings");
+  document.querySelectorAll("#dlg .tabs button").forEach((b) => {
+    b.onclick = () => {
+      document.querySelectorAll("#dlg .tabs button").forEach((x) => x.classList.toggle("on", x === b));
+      document.querySelectorAll("#dlg .tabpane").forEach((p) => p.classList.toggle("on", p.id === b.dataset.pane));
+    };
+  });
+  const renderOv = () => {
+    $("ovlist").innerHTML = FOLDER_CATS.filter(([id]) => id in catdirs).map(([id, key, col]) => `
+      <div class="ovrow"><i style="background:${col}"></i><span>${t(key)}</span>
+        <input class="ovin" data-id="${id}" value="${esc(catdirs[id])}" placeholder="${esc(t("ph_cat_dir"))}" spellcheck="false" autocomplete="off">
+        <button type="button" class="ovdel" data-id="${id}" title="${t("btn_remove")}">✕</button></div>`).join("");
+    $("ovlist").querySelectorAll(".ovin").forEach((inp) => {
+      inp.oninput = () => { catdirs[inp.dataset.id] = inp.value.trim(); };
+    });
+    $("ovlist").querySelectorAll(".ovdel").forEach((b) => {
+      b.onclick = () => { delete catdirs[b.dataset.id]; renderOv(); renderAdd(); };
+    });
+  };
+  const renderAdd = () => {
+    const left = FOLDER_CATS.filter(([id]) => !(id in catdirs));
+    if (!left.length) {
+      $("ovadd").innerHTML = "";
+      return;
+    }
+    $("ovadd").innerHTML = `<select id="ov-sel"><option value="">${esc(t("ph_pick_cat"))}</option>${left
+      .map(([id, key]) => `<option value="${id}">${t(key)}</option>`)
+      .join("")}</select>`;
+    $("ov-sel").onchange = () => {
+      const id = $("ov-sel").value;
+      if (!id) return;
+      catdirs[id] = "";
+      renderOv();
+      renderAdd();
+      const inp = $("ovlist").querySelector(`.ovin[data-id="${id}"]`);
+      if (inp) inp.focus();
+    };
+  };
+  renderOv();
+  renderAdd();
   $("o-cancel").onclick = closeModal;
   $("ft-all").onchange = () => {
     const on = $("ft-all").checked;
@@ -1381,17 +1461,14 @@ $("b-options").onclick = async () => {
     ints = [...new Set(ints)];
     if (!$("ft-all").checked && ints.length === 0) toast(t("ft_empty_all"));
     const auto = $("o-auto").checked;
-    const catdirs = {};
-    for (const [id] of FOLDER_CATS) {
-      const v = $("c-" + id).value.trim();
-      if (v) catdirs[id] = v;
-    }
+    // drop overrides the user added but left empty
+    const catsClean = Object.fromEntries(Object.entries(catdirs).filter(([, v]) => v));
     await invoke("set_settings", {
       // keep keys this dialog does not edit (unknown/future settings)
       v: { ...s, dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8,
            max_parallel: Math.min(16, Math.max(1, Number($("o-par").value) || 3)),
            speed_limit: Math.max(0, Number($("o-speed").value) || 0),
-           categories: catdirs, ytdlp_update: $("o-ytdlp").checked, theme: $("o-theme").value,
+           categories: catsClean, ytdlp_update: $("o-ytdlp").checked, theme: $("o-theme").value,
            lang: next, intercept_ext: ints, autostart: auto, notify: $("o-notify").checked },
     });
     setTheme($("o-theme").value);
