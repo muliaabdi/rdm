@@ -640,6 +640,9 @@ function renderRows() {
       const st = el.querySelector(".st");
       st.className = "st " + j.status;
       st.textContent = statusLabel(j);
+      const szt = j.size ? fmt(j.size) : "?";
+      const sz = el.querySelector(".sz");
+      if (sz.textContent !== szt) sz.textContent = szt;
       el.querySelector(".eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
       el.querySelector(".spd").textContent = j.status === "running" ? fmtSpeed(j.speed) : "—";
       const tip = j.filename + (j.error ? ` — ${j.error}` : "");
