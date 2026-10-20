@@ -147,6 +147,31 @@ impl App {
                 rusqlite::params![done as i64, status, error, now, size.map(|s| s as i64), id as i64],
             )?;
             self.live.lock().unwrap().remove(&id);
+            // terminal states drop the browser cookie from the stored spec:
+            // resume no longer needs it and plaintext session cookies should
+            // not live in rdm.db forever (paused keeps it for resume)
+            if matches!(status, "completed" | "failed" | "cancelled") {
+                let spec: Option<String> = db
+                    .query_row(
+                        "SELECT spec FROM jobs WHERE id=?1",
+                        [id as i64],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                if let Some(spec) = spec {
+                    if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&spec) {
+                        if v.get("cookie").is_some() {
+                            if let Some(obj) = v.as_object_mut() {
+                                obj.remove("cookie");
+                            }
+                            let _ = db.execute(
+                                "UPDATE jobs SET spec=?1 WHERE id=?2",
+                                rusqlite::params![v.to_string(), id as i64],
+                            );
+                        }
+                    }
+                }
+            }
             Ok(())
         });
     }
@@ -260,9 +285,7 @@ pub fn settings_path() -> PathBuf {
 fn settings_json() -> serde_json::Value {
     let p = settings_path();
     let b = std::fs::read(&p).ok().or_else(|| {
-        let legacy = socket_path()
-            .parent()
-            .map(|d| d.join("settings.json"))?;
+        let legacy = socket_path().parent().map(|d| d.join("settings.json"))?;
         std::fs::read(legacy).ok()
     });
     b.and_then(|b| serde_json::from_slice(&b).ok())
@@ -329,7 +352,7 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             // (journalctl --user -u rdm-daemon)
             tracing::info!(target: "ext", "{}", v["msg"].as_str().unwrap_or("?"));
             Ok(None)
-        },
+        }
         Some("set-settings") => {
             // single writer: persist and push to every connected client (the
             // browser extension refreshes its intercept allow-list from this)
@@ -1166,14 +1189,18 @@ async fn run_page(
         .map(PathBuf::from)
         .unwrap_or_else(default_out_dir);
     let base = rdm_core::engine::sanitize_filename(&info.title);
-    let vpath = dir.join(format!("{base}.v.{}", v.ext));
-    let apath = a
-        .as_ref()
-        .map(|af| dir.join(format!("{base}.a.{}", af.ext)));
+    let vext = rdm_core::engine::sanitize_ext(&v.ext);
+    let vpath = dir.join(format!("{base}.v.{vext}"));
+    let apath = a.as_ref().map(|af| {
+        dir.join(format!(
+            "{base}.a.{}",
+            rdm_core::engine::sanitize_ext(&af.ext)
+        ))
+    });
     let final_path = if a.is_some() {
         dir.join(format!("{base}.mp4"))
     } else {
-        dir.join(format!("{base}.{}", v.ext))
+        dir.join(format!("{base}.{vext}"))
     };
     {
         let fname = final_path

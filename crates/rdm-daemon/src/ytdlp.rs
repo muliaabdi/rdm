@@ -213,11 +213,23 @@ fn write_cookie_file(page_url: &str, header: &str) -> Option<CookieFile> {
     if n == 0 {
         return None;
     }
-    std::fs::write(&path, body).ok()?;
+    // 0600 from creation: a write-then-chmod leaves a window where other
+    // local users can read the session cookies off shared /tmp
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .ok()?;
+        f.write_all(body.as_bytes()).ok()?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, &body).ok()?;
     }
     Some(CookieFile(path))
 }

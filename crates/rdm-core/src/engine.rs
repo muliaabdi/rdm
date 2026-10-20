@@ -68,6 +68,22 @@ pub fn job_from_url(url: &str, out_dir: Option<PathBuf>, segments: u64, limits: 
     }
 }
 
+/// Extension from remote metadata (yt-dlp etc): strict allow-list so a
+/// hostile value can never smuggle path separators or traversal into an
+/// output path. Empty/blank falls back to "bin".
+pub fn sanitize_ext(e: &str) -> String {
+    let s: String = e
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    if s.is_empty() {
+        "bin".to_string()
+    } else {
+        s.to_ascii_lowercase()
+    }
+}
+
 pub fn sanitize_filename(name: &str) -> String {
     let clean: String = name
         .chars()
@@ -714,6 +730,18 @@ fn write_at(f: &mut std::fs::File, pos: u64, buf: &[u8]) -> std::io::Result<()> 
 mod tests {
     use super::*;
     use crate::state::Segment;
+
+    #[test]
+    fn sanitize_ext_never_carries_path_chars() {
+        assert_eq!(sanitize_ext("mp4"), "mp4");
+        assert_eq!(sanitize_ext("MP4"), "mp4");
+        assert_eq!(sanitize_ext("m2ts"), "m2ts");
+        assert_eq!(sanitize_ext("../../etc/passwd"), "etcpassw");
+        assert_eq!(sanitize_ext("a/b\\c"), "abc");
+        assert_eq!(sanitize_ext("webm; malicious"), "webmmali");
+        assert_eq!(sanitize_ext(""), "bin");
+        assert_eq!(sanitize_ext(".."), "bin");
+    }
 
     fn seg(start: u64, end: u64, done: u64) -> Segment {
         Segment { start, end, done }
