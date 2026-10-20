@@ -47,9 +47,11 @@ echo "==> browser native-messaging host"
 RDM_HOST_BIN="$BIN_DIR/rdm-host" "$ROOT/ext/install-host.sh" "${1:-}"
 
 echo "==> desktop entry"
-mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/128x128/apps"
+mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/128x128/apps" "$HOME/.local/share/icons/hicolor/256x256/apps"
 install -m 0644 "$ROOT/crates/rdm-ui/icons/128x128.png" \
   "$HOME/.local/share/icons/hicolor/128x128/apps/rdm.png"
+install -m 0644 "$ROOT/crates/rdm-ui/icons/128x128@2x.png" \
+  "$HOME/.local/share/icons/hicolor/256x256/apps/rdm.png"
 cat > "$HOME/.local/share/applications/rdm.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -58,6 +60,7 @@ Comment=Download manager
 Exec=$BIN_DIR/rdm-ui
 Icon=rdm
 Terminal=false
+StartupWMClass=com.rdm.ui
 Categories=Network;FileTransfer;
 EOF
 update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
