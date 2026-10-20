@@ -28,7 +28,7 @@
   }
 
   // For blob:/MSE media we offer "the page" — but on feed sites (x.com,
-  // twitter.com) the hovered video belongs to one post, not the timeline.
+  // reddit) the hovered video belongs to one post, not the timeline.
   // Walk up from the media element and prefer that post's permalink.
   function contextualPageUrl(el) {
     const abs = (h) => {
@@ -38,13 +38,22 @@
         return "";
       }
     };
+    // direct enclosing post link beats everything (old reddit, embeds)
+    const enclosing = el.closest && el.closest('a[href*="/comments/"]');
+    if (enclosing) return abs(enclosing.getAttribute("href") || "") || location.href;
     let n = el;
-    for (let i = 0; n && i < 12; i++, n = n.parentElement) {
+    for (let i = 0; n && i < 60; i++, n = n.parentElement) {
       if (n.tagName === "A") {
         const h = (n.getAttribute("href") || "").split("?")[0];
-        if (/^\/?[^/]*\/status\/\d+/.test(h)) return abs(h) || location.href;
+        if (/^\/?[^/]*\/status\/\d+/.test(h) || /\/comments\//.test(h)) return abs(h) || location.href;
+      } else if (n.tagName === "SHREDDIT-POST" || (n.hasAttribute && n.hasAttribute("permalink"))) {
+        // reddit: the post component carries its permalink as an attribute
+        const p = n.getAttribute("permalink");
+        if (p) return abs(p) || location.href;
+        const a = n.querySelector('a[slot="full-post-link"], a[slot="title"], a[href*="/comments/"]');
+        if (a) return abs(a.getAttribute("href") || "") || location.href;
       } else if (n.tagName === "ARTICLE" || (n.matches && n.matches('[data-testid="tweet"]'))) {
-        const a = n.querySelector('a[href*="/status/"]');
+        const a = n.querySelector('a[href*="/status/"], a[href*="/comments/"]');
         if (a) return abs(a.getAttribute("href") || "") || location.href;
       }
     }
@@ -110,15 +119,19 @@
 
     const box = () => root.querySelector(".box");
     const url = pageUrl || location.href;
+    // usable immediately: the two choices that never need a page extract.
+    // The resolution list replaces them once (and if) extraction lands.
+    const FALLBACK = [
+      { label: "Best", height: 1080, audio: false, tag: "auto" },
+      { label: "MP3", height: 0, audio: true, tag: "audio" },
+    ];
+    buildItems(FALLBACK, "RDM — pick quality");
     chrome.runtime.sendMessage({ t: "page-formats", url }, (resp) => {
       if (!menu) return;
       const err = chrome.runtime.lastError;
       if (err || !resp || !resp.ok) {
         // extraction failed or timed out: keep the two reliable choices
-        buildItems([
-          { label: "Best", height: 1080, audio: false, tag: "auto" },
-          { label: "MP3", height: 0, audio: true, tag: "audio" },
-        ], "RDM — fallback");
+        buildItems(FALLBACK, "RDM — fallback");
         return;
       }
       const fmts = Array.isArray(resp.formats) ? resp.formats : [];
@@ -160,13 +173,19 @@
           e.preventDefault();
           const it = items[Number(el.dataset.i)];
           el.querySelector("b").textContent = "…";
-          chrome.runtime.sendMessage(
-            { t: "page-offer", url, height: it.height || 1080, audio: !!it.audio },
-            () => {
-              el.querySelector("b").textContent = chrome.runtime.lastError ? "ERR" : "✓";
-              setTimeout(() => { closeMenu(); destroy(); }, 900);
-            }
-          );
+          try {
+            chrome.runtime.sendMessage(
+              { t: "page-offer", url, height: it.height || 1080, audio: !!it.audio },
+              () => {
+                // orphaned script after an extension reload leaves this
+                // pending forever; a hard error at least names the problem
+                el.querySelector("b").textContent = chrome.runtime.lastError ? "ERR" : "✓";
+                setTimeout(() => { closeMenu(); destroy(); }, 900);
+              }
+            );
+          } catch (err) {
+            el.querySelector("b").textContent = "ERR (reload page)";
+          }
         });
       });
       placeMenu();
@@ -300,6 +319,16 @@
       btn.title = pageModeNow ? "Pick a quality for this page video" : "";
     }
     if (mp3) mp3.style.display = pageModeNow ? "block" : "none";
+    if (pageModeNow) {
+      // warm the format list while the user reaches for the pill, so the menu
+      // is usually instant (background caches the reply and de-dupes calls)
+      try {
+        chrome.runtime.sendMessage(
+          { t: "page-formats", url: pageUrl || location.href },
+          () => void chrome.runtime.lastError
+        );
+      } catch {}
+    }
     btn.style.opacity = "1";
     place();
   }
@@ -314,13 +343,25 @@
   // Resolve the media element for a hovered node. Players (JWPlayer, video.js,
   // custom HTML5 players) usually stack transparent control layers on top of
   // the <video>, so the hover target is a wrapper - look for the media inside
-  // a player-ish ancestor too. Shadow-DOM hosts retarget to the host element,
-  // which `querySelector` can still see through for slotted content.
-  function mediaAt(el) {
+  // a player-ish ancestor too. Shadow-DOM hosts (Reddit faceplate, etc.)
+  // retarget events to the host element, so walk the composed path and the
+  // hosts' own shadow roots as well.
+  function mediaAt(el, path) {
     if (!el || el.nodeType !== 1 || !el.closest) return null;
+    if (path && path.length) {
+      for (const n of path) {
+        if (n && n.matches && n.matches("video, audio")) return n;
+      }
+      for (const n of path) {
+        if (n && n.shadowRoot) {
+          const v = n.shadowRoot.querySelector("video, audio");
+          if (v) return v;
+        }
+      }
+    }
     const direct = el.closest("video, audio");
     if (direct) return direct;
-    const host = el.closest('[class*="player" i],[id*="player" i],[class*="video" i],[id*="video" i],[class*="jw" i],[data-player],[data-testid*="video" i],[data-testid*="player" i]');
+    const host = el.closest('[class*="player" i],[id*="player" i],[class*="video" i],[id*="video" i],[class*="jw" i],[data-player],[data-testid*="video" i],[data-testid*="player" i],faceplate-video-player,shreddit-post');
     if (host) return host.querySelector("video, audio");
     return null;
   }
@@ -333,7 +374,7 @@
       clearTimeout(hideTimer);
       return;
     }
-    const el = mediaAt(e.target);
+    const el = mediaAt(e.target, e.composedPath && e.composedPath());
     if (!el) {
       scheduleHide();
       return;

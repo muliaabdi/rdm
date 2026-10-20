@@ -53,26 +53,29 @@
 
   /* ---- toolbar ---- */
   #toolbar {
-    display: flex; align-items: stretch; gap: 2px; padding: 6px 8px 5px;
+    display: flex; align-items: center; gap: 2px; padding: 0 10px; height: 46px; flex: none;
     background: var(--chrome);
     border-bottom: 1px solid var(--line);
   }
   .tbtn {
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-    min-width: 62px; padding: 6px 10px 5px;
-    border: none; border-radius: 9px;
-    background: transparent; color: var(--txt); cursor: default;
-    transition: background-color .13s ease;
+    display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px;
+    border: 1px solid transparent; border-radius: 8px;
+    background: transparent; color: var(--txt2); cursor: default;
+    transition: background-color .12s ease, color .12s ease, border-color .12s ease;
   }
-  .tbtn:hover { background: var(--chrome-lo); }
-  .tbtn:hover svg { transform: translateY(-1px); }
+  .tbtn:hover { background: var(--chrome-lo); color: var(--txt); }
   .tbtn:active { background: var(--chrome-act); }
-  .tbtn:active svg { transform: translateY(0); }
-  .tbtn[disabled] { opacity: .35; pointer-events: none; }
-  .tbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
-  .tbtn svg { width: 20px; height: 20px; transition: transform .13s ease; color: var(--dim); }
-  .tbtn span { font-size: 11px; color: var(--txt2); }
-  .tsep { width: 1px; margin: 8px 5px; flex: none; background: var(--line2); opacity: .7; }
+  .tbtn[disabled] { opacity: .38; pointer-events: none; }
+  .tbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .tbtn svg { width: 16px; height: 16px; flex: none; color: var(--dim); transition: color .12s ease; }
+  .tbtn:hover svg { color: var(--txt2); }
+  .tbtn span { font-size: 11.5px; }
+  /* one filled control: the primary action owns the accent */
+  #b-add { background: var(--accent); color: #fff; }
+  #b-add:hover { background: #275f9f; color: #fff; }
+  #b-add:active { background: #22548d; }
+  #b-add svg, #b-add:hover svg { color: #fff; }
+  .tsep { width: 1px; height: 18px; margin: 0 6px; flex: none; background: var(--line2); }
   #spacer { flex: 1; }
 
   /* ---- main split ---- */
@@ -80,74 +83,87 @@
 
   /* ---- categories ---- */
   #cats {
-    width: 162px; flex: none; background: var(--chrome);
+    width: 172px; flex: none; background: var(--chrome);
     border-right: 1px solid var(--line);
-    padding: 9px 0; overflow-y: auto;
+    padding: 12px 8px; overflow-y: auto;
   }
   #cats h3 {
-    margin: 0 8px 6px; padding: 0 6px 7px; font-size: 10.5px; font-weight: 650; letter-spacing: .07em;
-    text-transform: uppercase; color: var(--dim);
-    border-bottom: 1px solid var(--line);
+    margin: 0 0 8px; padding: 0 9px; font-size: 11px; font-weight: 600; color: var(--dim);
   }
   .cat {
-    display: flex; align-items: center; gap: 9px; margin: 2px 8px; padding: 5px 10px;
-    border-radius: 8px; cursor: default;
-    transition: background-color .12s ease;
+    display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 9px;
+    border-radius: 7px; cursor: default; color: var(--txt2);
+    transition: background-color .12s ease, color .12s ease;
   }
   .cat:hover { background: var(--chrome-lo); }
   .cat.sel { background: var(--cat-sel); color: var(--cat-sel-txt); }
-  .cat .ic { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-  .cat .cnt { margin-left: auto; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .cat .ic { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .cat .cnt { margin-left: auto; font-size: 11px; color: var(--dim2); font-variant-numeric: tabular-nums; }
   .cat.sel .cnt { color: var(--cat-sel-cnt); }
 
   /* ---- table ---- */
   #listwrap { flex: 1; min-width: 0; background: var(--panel); display: flex; flex-direction: column; }
   #head, .row {
     display: grid;
-    grid-template-columns: minmax(130px, 1fr) 76px 120px 82px 70px 76px;
-    padding-right: 0;
+    grid-template-columns: minmax(180px, 1fr) 84px 148px 96px 74px 88px;
+    align-items: center;
+    padding: 0 12px;
   }
   #head {
+    height: 32px; flex: none;
     background: var(--panel-hi);
     border-bottom: 1px solid var(--line);
-    font-weight: 600; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+    font-weight: 600; font-size: 11px; color: var(--dim);
   }
-  #head div { padding: 7px 6px; }
   #rows { flex: 1; overflow-y: auto; }
   .row {
-    height: 30px; align-items: center; cursor: default;
+    height: 42px; cursor: default;
     border-bottom: 1px solid var(--rowline);
     transition: background-color .1s ease;
   }
   .row:hover { background: var(--hover); }
-  .row.sel { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
+  .row.sel { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--accent); }
   .row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   .row.sel .dim { color: var(--sel-dim); }
   .row .name {
-    display: flex; align-items: center; gap: 8px; padding: 0 8px;
+    display: flex; align-items: center; gap: 9px;
     overflow: hidden; white-space: nowrap;
   }
-  .row .name .nm { overflow: hidden; text-overflow: ellipsis; }
-  .fico { width: 15px; height: 15px; flex: none; border-radius: 4px; display: flex;
-    align-items: center; justify-content: center; font: bold 8px/1 sans-serif; color: #fff; }
-  .row > div { padding: 0 6px; overflow: hidden; white-space: nowrap; }
+  .row .name .nm { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  .fico { width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex;
+    align-items: center; justify-content: center; font: bold 9.5px/1 sans-serif; color: #fff; }
+  .row > div { overflow: hidden; white-space: nowrap; }
+  #head > div, .row > div { padding: 0 8px; }
+  #head > div:first-child, .row > div:first-child { padding-left: 0; }
+  #head > div:last-child, .row > div:last-child { padding-right: 0; }
   .num, .st, .dim { text-align: right; font-variant-numeric: tabular-nums; }
-  .st.running { color: var(--green); }
-  .st.confirming, .st.resolving { color: var(--dim); }
-  .st.paused { color: var(--amber); }
-  .st.queued { color: #4a7bd0; }
-  .st.failed { color: var(--red); }
-  .st.completed { color: var(--done); }
+  .dim { color: var(--dim); font-size: 11.5px; }
+  /* status is a chip inside rows; the header keeps the plain column label */
+  .row .st {
+    justify-self: start; display: inline-flex; align-items: center;
+    padding: 2px 9px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 600; text-align: left;
+  }
+  .st.running { color: var(--green); background: rgba(83,179,86,.13); }
+  .st.confirming, .st.resolving { color: var(--dim); background: var(--track); }
+  .st.paused { color: var(--amber); background: rgba(217,164,65,.14); }
+  .st.queued { color: #4a7bd0; background: rgba(74,123,208,.14); }
+  .st.failed { color: var(--red); background: rgba(224,104,92,.14); }
+  .st.completed { color: var(--done); background: rgba(83,179,86,.13); }
+  .st.cancelled { color: var(--dim); background: var(--track); }
 
-  .row > .pcol { padding: 0 8px; }
+  .row > .pcol { display: flex; align-items: center; gap: 8px; }
   .cellbar {
-    position: relative; height: 10px; border-radius: 999px; overflow: hidden;
+    position: relative; height: 6px; flex: 1; border-radius: 999px; overflow: hidden;
     background: var(--track2);
   }
   .cellbar > .fill {
     position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
     transition: width .5s linear, background-color .2s;
   }
+  .pct { width: 32px; flex: none; text-align: right; font-size: 10.5px;
+    color: var(--dim); font-variant-numeric: tabular-nums; }
+  .row .spd { color: var(--txt2); font-size: 11.5px; }
 
   /* ---- details dialog ---- */
   #dlg.wide { width: 560px; }
@@ -168,14 +184,75 @@
   .dt-gtitle { font-size: 10px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
   .dgraph { width: 100%; height: 96px; display: block; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 
+  /* ---- details dialog v2 ---- */
+  .dv { display: flex; flex-direction: column; gap: 11px; }
+  .dv-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .dv-ico { width: 34px; height: 34px; flex: none; border-radius: 10px; display: flex;
+    align-items: center; justify-content: center; font: 700 10px/1 sans-serif; color: #fff; letter-spacing: .02em; }
+  .dv-titles { min-width: 0; }
+  .dv-name { font-weight: 650; font-size: 12.5px; overflow: hidden; white-space: nowrap;
+    text-overflow: ellipsis; user-select: text; }
+  .dv-sub { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 11px; color: var(--dim); }
+  .dv-sub .dot { opacity: .5; }
+  .dv-track { position: relative; height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .dv-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
+    transition: width .4s linear, background-color .2s; }
+  .dv-meta-line { display: flex; justify-content: space-between; margin-top: 5px;
+    font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .dv-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .dv-stat { background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 7px 10px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .dv-stat b { font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .dv-stat small { font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+  .dv-path { display: flex; gap: 7px; align-items: center; font-size: 11px; color: var(--dim); }
+  .dv-path span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
+  .dv-path svg { width: 13px; height: 13px; flex: none; opacity: .7; }
+
+  /* ---- compact detail window (background offers) ---- */
+  html[data-mode="detail"] #toolbar,
+  html[data-mode="detail"] #main,
+  html[data-mode="detail"] #status,
+  html[data-mode="detail"] #modal,
+  html[data-mode="detail"] #ctx { display: none !important; }
+  #detail-root { display: none; }
+  html[data-mode="detail"] #detail-root {
+    display: flex; flex-direction: column; gap: 11px; height: 100%;
+    padding: 14px 16px 16px; overflow-y: auto;
+  }
+  .dc-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .dc-titles { min-width: 0; flex: 1; }
+  .dc-name { font-weight: 650; font-size: 12.5px; line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    user-select: text; word-break: break-all; }
+  .dc-sub { margin-top: 2px; font-size: 11px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
+  .dc-sub .dot { opacity: .5; }
+  .dc-x { flex: none; width: 24px; height: 24px; margin: -2px -4px 0 0; border: none; border-radius: 7px;
+    background: transparent; color: var(--dim); font-size: 12px; line-height: 1; }
+  .dc-x:hover { background: var(--hover); color: var(--txt); }
+  .dc-graph { width: 100%; height: 74px; display: block; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--panel); }
+  .dc-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 2px; }
+  .dc-actions button { flex: 1; padding: 7px 10px; border: 1px solid var(--line2);
+    border-radius: 9px; background: var(--btn-bg); color: var(--txt);
+    transition: background-color .12s ease, border-color .12s ease; }
+  .dc-actions button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
+  .dc-actions button:active { background: var(--btn-act); }
+  .dc-actions button:disabled { opacity: .45; pointer-events: none; }
+  .dc-actions button.pri { border-color: transparent; color: #fff; background: #3569b8; }
+  .dc-actions button.pri:hover { background: #3d74c6; }
+  .dc-err { display: none; color: var(--red); font-size: 11px; user-select: text;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .dc-err.on { display: block; }
+
   /* ---- status bar ---- */
   #status {
-    height: 24px; flex: none; display: flex; align-items: center; gap: 20px; padding: 0 12px;
+    height: 26px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 14px;
     background: var(--chrome); border-top: 1px solid var(--line);
     font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums;
   }
   #s-conn { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-  #s-conn .dot { width: 7px; height: 7px; border-radius: 50%; background: #c9a520; }
+  #s-conn .dot { width: 6px; height: 6px; border-radius: 50%; background: #c9a520; }
   #s-conn.ok .dot { background: var(--green); }
   #s-conn.bad .dot { background: var(--red); }
 
@@ -226,10 +303,25 @@
   #dlg .btns { padding-top: 12px; flex: none; }
   #dlg.hasbody .btns { border-top: 1px solid var(--line); margin-top: 10px; }
   .empty {
-    grid-column: 1 / -1; padding: 48px 20px; text-align: center; color: var(--dim2);
+    grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 72px 24px; text-align: center; color: var(--dim);
   }
-  .empty svg { width: 36px; height: 36px; margin-bottom: 10px; opacity: .4; }
-  .empty .empty-hint { margin-top: 5px; font-size: 11px; color: var(--dim2); }
+  .empty .plate {
+    width: 44px; height: 44px; margin-bottom: 4px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--track); color: var(--dim);
+  }
+  .empty svg { width: 21px; height: 21px; }
+  .empty .ttl { font-size: 12.5px; font-weight: 600; color: var(--txt2); }
+  .empty .empty-hint { max-width: 320px; font-size: 11.5px; color: var(--dim2); }
+  .empty button {
+    margin-top: 10px; height: 30px; padding: 0 14px;
+    border: 1px solid var(--line2); border-radius: 8px;
+    background: var(--btn-bg); color: var(--txt); font-size: 11.5px;
+    transition: background-color .12s ease, border-color .12s ease;
+  }
+  .empty button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
+  .empty button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
   /* ---- context menu ---- */
   #ctx {
@@ -336,7 +428,7 @@
 
 <div id="toolbar" role="toolbar" aria-label="RDM">
   <button type="button" class="tbtn" id="b-add" data-i18n-title="add_url">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#2f6fb8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9m-4.5-4.5L12 12l4.5-4.5"/><path d="M4 16v2.2c0 .7.6 1.3 1.3 1.3h13.4c.7 0 1.3-.6 1.3-1.3V16"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9m-4.5-4.5L12 12l4.5-4.5"/><path d="M4 16v2.2c0 .7.6 1.3 1.3 1.3h13.4c.7 0 1.3-.6 1.3-1.3V16"/></svg>
     <span data-i18n="add_url">Add URL</span>
   </button>
   <div class="tsep"></div>
@@ -372,7 +464,7 @@
   <div id="listwrap">
     <div id="head">
       <div data-i18n="col_name">Name</div><div class="num" data-i18n="col_size">Size</div><div data-i18n="col_progress">Progress</div>
-      <div class="st" data-i18n="col_status">Status</div><div class="num" data-i18n="col_eta">Time left</div><div class="num" data-i18n="col_speed">Speed</div>
+      <div data-i18n="col_status">Status</div><div class="num" data-i18n="col_eta">Time left</div><div class="num" data-i18n="col_speed">Speed</div>
     </div>
     <div id="rows" role="listbox" aria-label="Downloads"></div>
   </div>
@@ -399,6 +491,7 @@ window.__rdmErrs = [];
 window.addEventListener("error", (e) => { window.__rdmErrs.push(e.message); diag("onerror: " + e.message); });
 let invoke = async () => { throw new Error("IPC not ready"); };
 let listen = async () => () => {};
+let detailWin = false;   // this webview is the compact "Download details" popup
 // The Tauri global can appear after document-start on WebKitGTK; poll for it
 // instead of binding once and dying when it is not there yet
 function bindIpc() {
@@ -406,6 +499,12 @@ function bindIpc() {
   if (t && t.core && t.core.invoke && t.event && t.event.listen) {
     invoke = t.core.invoke;
     listen = t.event.listen;
+    try {
+      if (t.window && t.window.getCurrentWindow) {
+        detailWin = t.window.getCurrentWindow().label === "detail";
+      }
+    } catch {}
+    if (detailWin) initDetailWindow();
     diag("boot ok");
     return true;
   }
@@ -440,6 +539,7 @@ const I18N = {
     col_eta: "Time left", col_speed: "Speed", col_file: "File", col_category: "Category",
     col_downloaded: "Downloaded", speed_graph: "Speed graph",
     no_selection: "No download selected", items_zero: "0 items", total_zero: "0 B/s total",
+    empty_title: "No downloads yet",
     details: "Details", details_title: "Download details", btn_close: "Close",
     ctx_open_file: "Open file", ctx_open_folder: "Open folder",
     connecting: "connecting…", connected: "connected", disconnected: "disconnected",
@@ -492,6 +592,7 @@ const I18N = {
     col_eta: "Sisa waktu", col_speed: "Kecepatan", col_file: "Berkas", col_category: "Kategori",
     col_downloaded: "Terunduh", speed_graph: "Grafik kecepatan",
     no_selection: "Tidak ada unduhan dipilih", items_zero: "0 item", total_zero: "0 B/s total",
+    empty_title: "Belum ada unduhan",
     details: "Rincian", details_title: "Rincian unduhan", btn_close: "Tutup",
     ctx_open_file: "Buka berkas", ctx_open_folder: "Buka folder",
     connecting: "menghubungkan…", connected: "terhubung", disconnected: "terputus…",
@@ -619,6 +720,7 @@ let selected = null;
 let cat = "all";
 let connected = false;
 let detailSeen = false;
+let detailId = null;    // job shown in the compact detail window
 
 const CATS = [
   ["all", "cat_all", "#5a7fbf"],
@@ -732,17 +834,17 @@ function rowHtml(j) {
   const fillColor = j.status === "failed" ? "#d9534f"
     : j.status === "paused" ? "#d99a2b"
     : j.status === "confirming" ? "transparent"
-    : j.status === "completed" ? "#b9dfbb"
+    : j.status === "completed" ? "var(--green)"
     : "linear-gradient(90deg,#5fc066,#3d9c44)";
   const w = j.status === "completed" ? 100 : pct;
   const tip = esc(j.filename + (j.error ? ` — ${j.error}` : ""));
   return `<div class="row ${selected === j.id ? "sel" : ""}" role="option" aria-selected="${selected === j.id}" tabindex="0" data-id="${j.id}">
     <div class="name" title="${tip}">${icoFor(j)}<span class="nm">${esc(j.filename)}</span></div>
     <div class="num dim sz">${j.size ? fmt(j.size) : "?"}</div>
-    <div class="pcol"><div class="cellbar"><div class="fill" style="width:${w}%;background:${fillColor}"></div></div></div>
+    <div class="pcol"><div class="cellbar"><div class="fill" style="width:${w}%;background:${fillColor}"></div></div><span class="pct">${w.toFixed(0)}%</span></div>
     <div class="st ${j.status}">${statusLabel(j)}</div>
     <div class="num dim eta">${j.status === "running" ? fmtEta(etaOf(j)) : "—"}</div>
-    <div class="num dim spd">${j.status === "running" ? fmtSpeed(j.speed) : "—"}</div>
+    <div class="num spd">${j.status === "running" ? fmtSpeed(j.speed) : "—"}</div>
   </div>`;
 }
 function renderRows() {
@@ -750,9 +852,12 @@ function renderRows() {
   const box = $("rows");
   if (!rows.length) {
     box.innerHTML = `<div class="empty">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10m-4-4 4 4 4-4"/><path d="M4 17v1.5C4 19.3 4.7 20 5.5 20h13c.8 0 1.5-.7 1.5-1.5V17"/></svg>
-      <div>${t("empty_category")}</div>
-      <div class="empty-hint">${t("empty_hint")}</div></div>`;
+      <div class="plate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v10m-4-4 4 4 4-4"/><path d="M4 17v1.5C4 19.3 4.7 20 5.5 20h13c.8 0 1.5-.7 1.5-1.5V17"/></svg></div>
+      <div class="ttl">${t(cat === "all" ? "empty_title" : "empty_category")}</div>
+      <div class="empty-hint">${t("empty_hint")}</div>
+      <button id="empty-add">${t("add_url")}</button></div>`;
+    const ea = $("empty-add");
+    if (ea) ea.onclick = () => $("b-add").click();
     box.dataset.ids = "";
     updateToolbar(); updateDetails(); renderStatus();
     return;
@@ -768,8 +873,9 @@ function renderRows() {
       el.classList.toggle("sel", on);
       el.setAttribute("aria-selected", on);
       const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
-      el.querySelector(".fill").style.width =
-        (j.status === "completed" ? 100 : pct) + "%";
+      const w = j.status === "completed" ? 100 : pct;
+      el.querySelector(".fill").style.width = w + "%";
+      el.querySelector(".pct").textContent = w.toFixed(0) + "%";
       const st = el.querySelector(".st");
       st.className = "st " + j.status;
       st.textContent = statusLabel(j);
@@ -950,10 +1056,26 @@ function openConfirm(m) {
   };
 }
 
-/* ---------- details dialog (classic style, opened by double-click) ---------- */
+/* ---------- details dialog (in-app, double-click) ---------- */
 let detailsFor = null;
 function detailSeries() {
   return jobHist.get(detailsFor) || [];
+}
+/// File badge: category colour + short extension label.
+function icoOf(j) {
+  const c = catOf(j);
+  const col = (CATS.find(([id]) => id === c) || CATS[0])[2];
+  const m = /\.([a-z0-9]+)$/i.exec(j.filename || "");
+  return { col, ch: (m ? m[1] : c).slice(0, 4).toUpperCase() };
+}
+function pctOf(j) {
+  return j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
+}
+function fillColor(j) {
+  return j.segs && j.status === "running" ? segGradient(j.segs, j.size)
+    : j.status === "failed" ? "#d9534f"
+    : j.status === "paused" ? "#d99a2b"
+    : j.status === "completed" ? "#57b85c" : "#57b85c";
 }
 function openDetails(id) {
   const j = jobs.get(id);
@@ -961,28 +1083,45 @@ function openDetails(id) {
   detailsFor = id;
   selected = id;
   openModal(`<h3>${t("details_title")}</h3>
-    <div class="dt-head">
-      <div class="dt-name" id="dt-name"></div>
-      <div class="dt-st st" id="dt-st"></div>
+    <div class="dv">
+      <div class="dv-head">
+        <div class="dv-ico" id="dt-ico"></div>
+        <div class="dv-titles">
+          <div class="dv-name" id="dt-name"></div>
+          <div class="dv-sub">
+            <span id="dt-cat"></span><span class="dot">·</span>
+            <span class="st" id="dt-st"></span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="dv-track"><div class="dv-fill" id="dt-fill"></div></div>
+        <div class="dv-meta-line"><span id="dt-pct">0%</span><span id="dt-done"></span></div>
+      </div>
+      <div class="dv-stats">
+        <div class="dv-stat"><b id="dt-speed">—</b><small>${t("col_speed")}</small></div>
+        <div class="dv-stat"><b id="dt-eta">—</b><small>${t("col_eta")}</small></div>
+        <div class="dv-stat"><b id="dt-size">—</b><small>${t("col_size")}</small></div>
+      </div>
+      <div class="dt-gtitle" style="margin:0">${t("speed_graph")}</div>
+      <canvas class="dgraph" id="dt-graph"></canvas>
+      <div class="dv-path">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5c0-.8.6-1.5 1.4-1.5H9l2 2.2h8.6c.8 0 1.4.7 1.4 1.5v8.8c0 .8-.6 1.5-1.4 1.5H4.4c-.8 0-1.4-.7-1.4-1.5z"/></svg>
+        <span id="dt-file"></span>
+      </div>
+      <div class="errline" id="dt-err"></div>
     </div>
-    <div class="bigbar"><div class="fill" id="dt-fill"></div></div>
-    <div class="errline" id="dt-err"></div>
-    <div class="dgrid">
-      <div class="k">${t("col_file")}</div><div class="v" id="dt-file"></div>
-      <div class="k">${t("col_category")}</div><div class="v" id="dt-cat"></div>
-      <div class="k">${t("col_size")}</div><div class="v" id="dt-size"></div>
-      <div class="k">${t("col_downloaded")}</div><div class="v" id="dt-done"></div>
-      <div class="k">${t("col_speed")}</div><div class="v" id="dt-speed"></div>
-      <div class="k">${t("col_eta")}</div><div class="v" id="dt-eta"></div>
-    </div>
-    <div class="dt-gtitle">${t("speed_graph")}</div>
-    <canvas class="dgraph" id="dt-graph"></canvas>
     <div class="btns">
+      <button id="dt-folder">${t("ctx_open_folder")}</button>
       <button id="dt-toggle"></button>
       <button id="dt-close" class="pri">${t("btn_close")}</button>
     </div>`);
   $("dlg").classList.add("wide");
   $("dt-close").onclick = closeModal;
+  $("dt-folder").onclick = () => {
+    const jj = jobs.get(detailsFor);
+    if (jj) invoke("open_path", { path: jj.out_path || "", folder: true }).catch((e) => toast(trErr(e)));
+  };
   $("dt-toggle").onclick = () => {
     const jj = jobs.get(detailsFor);
     if (!jj) return;
@@ -997,19 +1136,20 @@ function updateDetails() {
   if (detailsFor == null || !$("dt-name")) return;
   const j = jobs.get(detailsFor);
   if (!j) { closeModal(); return; }
-  const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
+  const pct = pctOf(j);
   $("dt-name").textContent = j.filename || "?";
   $("dt-name").title = j.filename || "";
+  const ico = icoOf(j);
+  $("dt-ico").style.background = ico.col;
+  $("dt-ico").textContent = ico.ch;
+  $("dt-cat").textContent = t(CATS.find(([id]) => id === catOf(j))[1]);
   const st = $("dt-st");
-  st.className = "dt-st st " + j.status;
+  st.className = "st " + j.status;
   st.textContent = statusLabel(j);
-  const fill = $("dt-fill");
-  fill.style.width = pct + "%";
-  fill.style.background =
-    j.segs && j.status === "running" ? segGradient(j.segs, j.size) :
-    j.status === "failed" ? "#d9534f" :
-    j.status === "paused" ? "#d99a2b" :
-    j.status === "completed" ? "#b9dfbb" : "#57b85c";
+  $("dt-fill").style.width = pct + "%";
+  $("dt-fill").style.background = fillColor(j);
+  $("dt-pct").textContent = pct.toFixed(0) + "%";
+  $("dt-done").textContent = fmt(j.done) + (j.size ? " / " + fmt(j.size) : "");
   const err = $("dt-err");
   if (j.error && (j.status === "failed" || j.status === "cancelled")) {
     err.textContent = t("error_label") + ": " + j.error;
@@ -1018,10 +1158,8 @@ function updateDetails() {
   } else { err.className = "errline"; err.textContent = ""; err.removeAttribute("title"); }
   $("dt-file").textContent = j.out_path || "-";
   $("dt-file").title = j.out_path || "";
-  $("dt-cat").textContent = t(CATS.find(([id]) => id === catOf(j))[1]);
   $("dt-size").textContent = j.size ? fmt(j.size) : "?";
-  $("dt-done").textContent = fmt(j.done);
-  $("dt-speed").textContent = j.status === "running" ? fmtSpeed(j.speed) : "—";
+  $("dt-speed").textContent = j.status === "running" ? fmtSpeed(curSpeed(j)) : "—";
   $("dt-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
   const tog = $("dt-toggle");
   if (tog) {
@@ -1039,6 +1177,12 @@ function renderStatus() {
 }
 
 /* ---------- graph ---------- */
+/// The one number the speed card and the graph label agree on: the latest
+/// smoothed sample (falling back to the rolling-average estimate).
+function curSpeed(j) {
+  const h = jobHist.get(j.id);
+  return h && h.length ? h[h.length - 1].v : (j.speed || 0);
+}
 /// Distinct hue per segment index; 47 is coprime to 360 so up to ~30 bands
 /// stay visually apart. Segment indices are stable across dynamic splits.
 function segColor(i, a) {
@@ -1111,12 +1255,13 @@ function paintGraph(cv, samples) {
       ctx.stroke();
       ctx.fillStyle = C.txt;
       ctx.font = `${10 * dpr}px system-ui, sans-serif`;
-      ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
+      // label = current speed, matching the card (max only scales the axis)
+      ctx.fillText(fmt(vals.length ? vals[vals.length - 1] : 0) + "/s", 4 * dpr, 10 * dpr);
     }
   } else {
     ctx.fillStyle = C.txt;
     ctx.font = `${10 * dpr}px system-ui, sans-serif`;
-    ctx.fillText(fmt(max) + "/s", 4 * dpr, 10 * dpr);
+    ctx.fillText(fmt(vals.length ? vals[vals.length - 1] : 0) + "/s", 4 * dpr, 10 * dpr);
   }
 }
 
@@ -1164,13 +1309,10 @@ listen("rdm", (ev) => {
       break;
     case "show": focusWindow(); break;
     case "show-job":
-      // new background offer: open its detail pane in place; only raise the
-      // window when the user would otherwise miss it entirely (minimized)
+      // background offer: the Rust side opens the compact detail popup; the
+      // main window just tracks the selection quietly (never raise/focus)
       apply({ id: m.id });
-      selected = m.id;
-      renderRows();
-      openDetails(m.id);
-      if (document.hidden) focusWindow();
+      if (!detailWin) { selected = m.id; renderRows(); }
       break;
     case "tray-select": if (jobs.has(m.id)) { selected = m.id; renderRows(); } break;
     case "formats": if (window.__onFormats) window.__onFormats(m); break;
@@ -1189,7 +1331,116 @@ listen("rdm", (ev) => {
     case "deleted": jobs.delete(m.id); speeds.delete(m.id); segPrev.delete(m.id); jobHist.delete(m.id); if (selected === m.id) selected = null;
       renderCats(); renderRows(); break;
   }
+  if (detailWin) renderDetailCard();
 });
+
+/* ---------- compact detail popup (background offers) ---------- */
+function initDetailWindow() {
+  if (document.getElementById("detail-root")) return;
+  document.documentElement.dataset.mode = "detail";
+  const root = document.createElement("div");
+  root.id = "detail-root";
+  root.innerHTML = `
+    <div class="dc-head">
+      <div class="dv-ico" id="dc-ico"></div>
+      <div class="dc-titles">
+        <div class="dc-name" id="dc-name">…</div>
+        <div class="dc-sub"><span id="dc-cat"></span><span class="dot">·</span><span class="st" id="dc-st"></span></div>
+      </div>
+      <button class="dc-x" id="dc-x" data-i18n-title="btn_close">✕</button>
+    </div>
+    <div>
+      <div class="dv-track"><div class="dv-fill" id="dc-fill"></div></div>
+      <div class="dv-meta-line"><span id="dc-pct">0%</span><span id="dc-done"></span></div>
+    </div>
+    <div class="dv-stats">
+      <div class="dv-stat"><b id="dc-speed">—</b><small data-i18n="col_speed">Speed</small></div>
+      <div class="dv-stat"><b id="dc-eta">—</b><small data-i18n="col_eta">Time left</small></div>
+      <div class="dv-stat"><b id="dc-size">—</b><small data-i18n="col_size">Size</small></div>
+    </div>
+    <canvas class="dc-graph" id="dc-graph"></canvas>
+    <div class="dv-path">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5c0-.8.6-1.5 1.4-1.5H9l2 2.2h8.6c.8 0 1.4.7 1.4 1.5v8.8c0 .8-.6 1.5-1.4 1.5H4.4c-.8 0-1.4-.7-1.4-1.5z"/></svg>
+      <span id="dc-file"></span>
+    </div>
+    <div class="dc-err" id="dc-err"></div>
+    <div class="dc-actions">
+      <button id="dc-open" data-i18n="ctx_open_folder">Open folder</button>
+      <button id="dc-toggle"></button>
+      <button id="dc-close" class="pri" data-i18n="btn_close">Close</button>
+    </div>`;
+  document.body.appendChild(root);
+
+  const closeWin = () => {
+    try { window.__TAURI__.window.getCurrentWindow().close(); } catch {}
+  };
+  $("dc-x").onclick = closeWin;
+  $("dc-close").onclick = closeWin;
+  $("dc-open").onclick = () => {
+    const j = jobs.get(detailId);
+    if (j) invoke("open_path", { path: j.out_path || "", folder: true }).catch((e) => toast(trErr(e)));
+  };
+  $("dc-toggle").onclick = () => {
+    const j = jobs.get(detailId);
+    if (!j) return;
+    const action = j.status === "running" ? "pause" : "resume";
+    invoke("job_action", { action, id: detailId }).catch((e) => toast(trErr(e)));
+  };
+  const cv = $("dc-graph");
+  new ResizeObserver(() => paintGraph(cv, jobHist.get(detailId) || [])).observe(cv);
+
+  listen("detail-open", (ev) => {
+    detailId = ev.payload.id;
+    apply({ id: detailId });
+    renderDetailCard();
+    invoke("list_jobs").catch(() => {});
+  });
+  // the window may be created after the offer arrived: pull the pending id
+  invoke("detail_current").then((id) => {
+    if (id) {
+      detailId = id;
+      apply({ id: detailId });
+      renderDetailCard();
+    }
+    invoke("list_jobs").catch(() => {});
+  }).catch(() => {});
+}
+
+function renderDetailCard() {
+  if (detailId == null || !$("dc-name")) return;
+  const j = jobs.get(detailId);
+  if (!j) return;
+  $("dc-name").textContent = j.filename || "…";
+  $("dc-name").title = j.filename || "";
+  const ico = icoOf(j);
+  $("dc-ico").style.background = ico.col;
+  $("dc-ico").textContent = ico.ch;
+  $("dc-cat").textContent = t(CATS.find(([id]) => id === catOf(j))[1]);
+  const st = $("dc-st");
+  st.className = "st " + j.status;
+  st.textContent = statusLabel(j);
+  const pct = pctOf(j);
+  $("dc-fill").style.width = pct + "%";
+  $("dc-fill").style.background = fillColor(j);
+  $("dc-pct").textContent = pct.toFixed(0) + "%";
+  $("dc-done").textContent = fmt(j.done) + (j.size ? " / " + fmt(j.size) : "");
+  $("dc-size").textContent = j.size ? fmt(j.size) : "?";
+  $("dc-speed").textContent = j.status === "running" ? fmtSpeed(curSpeed(j)) : "—";
+  $("dc-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
+  $("dc-file").textContent = j.out_path || "-";
+  $("dc-file").title = j.out_path || "";
+  const err = $("dc-err");
+  if (j.error && (j.status === "failed" || j.status === "cancelled")) {
+    err.textContent = j.error;
+    err.title = j.error;
+    err.className = "dc-err on";
+  } else { err.className = "dc-err"; err.textContent = ""; err.removeAttribute("title"); }
+  const tog = $("dc-toggle");
+  const idle = j.status === "completed" || j.status === "resolving";
+  tog.hidden = idle;
+  if (!idle) tog.textContent = j.status === "running" ? t("stop") : t("resume");
+  paintGraph($("dc-graph"), jobHist.get(detailId) || []);
+}
 
 setInterval(() => {
   const now = performance.now();
@@ -1198,16 +1449,22 @@ setInterval(() => {
       j.speed = sampleSpeed(j.id, j.done);
       let h = jobHist.get(j.id);
       if (!h) { h = []; jobHist.set(j.id, h); }
-      // per-segment speed from consecutive detail snapshots (~400 ms cadence)
+      // per-segment speed from consecutive detail snapshots (~400 ms cadence),
+      // EMA-smoothed so the stacked bands do not strobe; the smoothed sum is
+      // also what the card + graph label show, so both read the same number
       let seg = null;
       if (j.segs && j.segs.length) {
         const cur = j.segs.map((s) => s.done);
         const p = segPrev.get(j.id);
         const dt = p ? (now - p.t) / 1000 : 0;
         if (p && dt >= 0.2) {
-          seg = cur.map((d, i) => Math.max(0, (d - (p.arr[i] ?? 0)) / dt));
+          seg = cur.map((d, i) => {
+            const inst = Math.max(0, (d - (p.arr[i] ?? 0)) / dt);
+            const prev = p.ema ? (p.ema[i] ?? null) : null;
+            return prev == null ? inst : prev * 0.45 + inst * 0.55;
+          });
         }
-        segPrev.set(j.id, { t: now, arr: cur });
+        segPrev.set(j.id, { t: now, arr: cur, ema: seg });
       }
       h.push({ v: seg ? seg.reduce((a, b) => a + b, 0) : (j.speed || 0), seg });
       if (h.length > 120) h.shift();
@@ -1507,6 +1764,7 @@ $("b-options").onclick = async () => {
 
 invoke("list_jobs").catch(() => {});
 setInterval(() => invoke("list_jobs").catch(() => {}), 5000);
+if (detailWin) initDetailWindow();
 </script>
 </body>
 </html>

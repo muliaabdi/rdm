@@ -69,7 +69,7 @@ pub async fn extract(url: &str, ua: Option<&str>) -> Result<Gallery> {
     };
     let bin = gallery_dl_bin();
     let mut cmd = tokio::process::Command::new(&bin);
-    cmd.args(["--dump-json", "--no-download", url])
+    cmd.args(["--dump-json", "--no-download", url.as_str()])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

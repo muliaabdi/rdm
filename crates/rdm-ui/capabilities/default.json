@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/capability/2",
   "identifier": "default",
   "description": "RDM UI: event listen + core defaults",
-  "windows": ["main"],
+  "windows": ["main", "detail"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -11,6 +11,8 @@
     "core:window:allow-show",
     "core:window:allow-unminimize",
     "core:window:allow-set-focus",
-    "core:window:allow-set-always-on-top"
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-close",
+    "core:window:allow-hide"
   ]
 }

@@ -1431,6 +1431,25 @@ async fn run_page(
         .events
         .send(json!({"t":"status","id":id,"status":"running"}).to_string());
 
+    // total = video + audio estimate up front, so the percent is monotonic:
+    // otherwise phase 1 ends at 100% and drops when the audio phase grows the
+    // total (the classic "100% -> 97% -> 100%" wobble)
+    let a_size = a.as_ref().and_then(|f| f.filesize);
+    let est_total = match (v.filesize, a_size) {
+        (Some(vv), aa) => Some(vv + aa.unwrap_or(0)),
+        (_, Some(aa)) => Some(aa),
+        _ => None,
+    };
+    if let Some(total) = est_total.filter(|t| *t > 0) {
+        app.db_exec(move |db| {
+            db.execute(
+                "UPDATE jobs SET size=?1 WHERE id=?2 AND (size IS NULL OR size < ?1)",
+                rusqlite::params![total as i64, id as i64],
+            )?;
+            Ok(())
+        });
+    }
+
     // phase 1: video
 
     let mut ga = PhaseStat::default();
@@ -1443,7 +1462,7 @@ async fn run_page(
         app.limiter.clone(),
     );
     vjob.fresh = restart;
-    let gv: PhaseStat = match run_media(&app, id, vjob, &mut kill_rx, 0, None).await {
+    let gv: PhaseStat = match run_media(&app, id, vjob, &mut kill_rx, 0, a_size).await {
         Ok(st) => st,
         Err(e) => return page_fail(&app, id, e).await,
     };
@@ -1462,7 +1481,7 @@ async fn run_page(
             app.limiter.clone(),
         );
         ajob.fresh = restart;
-        match run_media(&app, id, ajob, &mut kill_rx, gv.done, gv.size).await {
+        match run_media(&app, id, ajob, &mut kill_rx, gv.done, None).await {
             Ok(st) => ga = st,
             Err(e) => return page_fail(&app, id, e).await,
         }

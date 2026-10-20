@@ -66,6 +66,17 @@ function extAllowed(name, url) {
   return !!e && interceptExt.includes(e);
 }
 
+// Concurrent extracts can finish out of order: prefer the waiter whose url
+// matches the reply, and only fall back to arrival order.
+function takeWaiter(m) {
+  const u = m && m.url;
+  if (u) {
+    const i = fmtWaiters.findIndex((w) => w.url === u);
+    if (i >= 0) return fmtWaiters.splice(i, 1)[0];
+  }
+  return fmtWaiters.shift();
+}
+
 function ensurePort() {
   if (!port) {
     port = chrome.runtime.connectNative(HOST_NAME);
@@ -78,9 +89,9 @@ function ensurePort() {
         }
         wakeSettings();
       } else if (m && m.t === "formats" && fmtWaiters.length) {
-        fmtWaiters.shift().res(m);
+        takeWaiter(m).res(m);
       } else if (m && m.t === "error" && fmtWaiters.length) {
-        fmtWaiters.shift().rej(new Error(m.error || "extract failed"));
+        takeWaiter(m).rej(new Error(m.error || "extract failed"));
       }
     });
     port.onDisconnect.addListener(() => {
@@ -146,10 +157,39 @@ async function pageOffer(url, height, audio) {
 }
 
 // Ask the daemon which formats a page exposes (yt-dlp extract). The reply
-// arrives as a "formats" frame on the same native port.
+// arrives as a "formats" frame on the same native port. Results (and failures)
+// are cached briefly: the pill prefetches on hover, the menu reuses the reply.
+const fmtCache = new Map(); // url -> {t, resp} | {t, err}
+const fmtInflight = new Map(); // url -> Promise
+
 function pageFormats(url) {
+  const hit = fmtCache.get(url);
+  if (hit) {
+    const ttl = hit.err ? 30000 : 120000;
+    if (Date.now() - hit.t < ttl) {
+      return hit.err ? Promise.reject(new Error(hit.err)) : Promise.resolve(hit.resp);
+    }
+  }
+  const infl = fmtInflight.get(url);
+  if (infl) return infl;
+  const p = pageFormatsRaw(url)
+    .then((r) => {
+      fmtCache.set(url, { t: Date.now(), resp: r });
+      return r;
+    })
+    .catch((e) => {
+      fmtCache.set(url, { t: Date.now(), err: String((e && e.message) || e) });
+      throw e;
+    })
+    .finally(() => fmtInflight.delete(url));
+  fmtInflight.set(url, p);
+  return p;
+}
+
+function pageFormatsRaw(url) {
   return new Promise(async (res, rej) => {
     const w = {
+      url,
       res,
       rej: (e) => rej(e),
       timer: setTimeout(() => {

@@ -3,11 +3,13 @@
 //! Auto-spawns rdm-daemon (sibling binary) when the socket is absent.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::json;
 use tauri::{Emitter, Manager, State};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
@@ -15,6 +17,9 @@ use tokio::sync::mpsc;
 struct Ctx {
     tx: Mutex<Option<mpsc::Sender<String>>>,
 }
+
+/// Id of the last background offer shown in the compact detail popup.
+static DETAIL_ID: AtomicU64 = AtomicU64::new(0);
 
 fn settings_path() -> PathBuf {
     rdm_daemon::settings_path()
@@ -264,6 +269,47 @@ async fn connect_daemon() -> anyhow::Result<UnixStream> {
     )
 }
 
+/// Compact "Download details" popup window for background offers (video pill,
+/// browser context menu). Creating/focusing it must never raise the main
+/// window — the user keeps browsing.
+fn show_detail_window(app: &tauri::AppHandle, id: u64) {
+    DETAIL_ID.store(id, Ordering::SeqCst);
+    let a = app.clone();
+    let res = app.run_on_main_thread(move || {
+        if let Some(w) = a.get_webview_window("detail") {
+            let _ = w.emit("detail-open", json!({"id": id}));
+            let _ = w.show();
+            let _ = w.set_focus();
+            return;
+        }
+        let built = WebviewWindowBuilder::new(&a, "detail", WebviewUrl::App("index.html".into()))
+            .title("RDM")
+            .inner_size(470.0, 400.0)
+            .min_inner_size(390.0, 320.0)
+            .resizable(true)
+            .always_on_top(true)
+            .skip_taskbar(false)
+            .build();
+        match built {
+            Ok(w) => {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            Err(e) => eprintln!("rdm-ui: detail window failed: {e}"),
+        }
+    });
+    if let Err(e) = res {
+        eprintln!("rdm-ui: detail window dispatch failed: {e}");
+    }
+}
+
+/// Job id the detail popup should render; the webview asks for it once it is
+/// ready (an emitted event could race the page load).
+#[tauri::command]
+fn detail_current() -> u64 {
+    DETAIL_ID.load(Ordering::SeqCst)
+}
+
 async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> {
     loop {
         // never give up: the daemon may be down for a while (updates, tests,
@@ -317,6 +363,14 @@ async fn run_socket(app: tauri::AppHandle, ctx: Arc<Ctx>) -> anyhow::Result<()> 
                     if v["t"].as_str() == Some("jobs") {
                         let jobs = v["jobs"].as_array().cloned().unwrap_or_default();
                         update_tray_jobs(&app, &jobs);
+                    }
+                    if v["t"].as_str() == Some("show-job") {
+                        // background offer: pop the compact detail window, never
+                        // the full app; the main window still gets the event for
+                        // its selection state
+                        if let Some(id) = v["id"].as_u64() {
+                            show_detail_window(&app, id);
+                        }
                     }
                     let _ = app.emit("rdm", v);
                 }
@@ -517,9 +571,9 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, e| {
             let id = e.id().as_ref().to_string();
             if let Some(jid) = id.strip_prefix("rdmj-") {
-                show_main(app);
-                if let Ok(n) = jid.parse::<i64>() {
-                    let _ = app.emit("rdm", json!({"t":"tray-select","id":n}));
+                // job line: only the compact detail popup, never the full app
+                if let Ok(n) = jid.parse::<u64>() {
+                    show_detail_window(app, n);
                 }
                 return;
             }
@@ -597,6 +651,7 @@ fn main() {
             set_autostart,
             job_action,
             notify,
+            detail_current,
             diag
         ])
         .run(tauri::generate_context!())
