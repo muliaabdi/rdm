@@ -293,6 +293,8 @@ fn now_ms() -> u128 {
 
 fn show_detail_window(app: &tauri::AppHandle, id: u64) {
     DETAIL_ID.store(id, Ordering::SeqCst);
+    // cancels any pending idle reaper (stale generation = do nothing)
+    DETAIL_GEN.fetch_add(1, Ordering::SeqCst);
     let a = app.clone();
     let res = app.run_on_main_thread(move || {
         if let Some(w) = a.get_webview_window("detail") {
@@ -300,7 +302,8 @@ fn show_detail_window(app: &tauri::AppHandle, id: u64) {
             let _ = w.show();
             let _ = w.set_focus();
         } else {
-            // pre-create failed or the window was destroyed; rebuild it
+            // first open after start (or after the idle reaper destroyed it):
+            // building the webview costs a few hundred ms
             match build_detail(&a, true) {
                 Ok(w) => {
                     let _ = w.show();
@@ -314,6 +317,38 @@ fn show_detail_window(app: &tauri::AppHandle, id: u64) {
     if let Err(e) = res {
         eprintln!("rdm-ui: detail window dispatch failed: {e}");
     }
+}
+
+/// Generation counter for the detail popup lifecycle: bumped on every show
+/// and every hide, so an idle reaper that wakes up with a stale value knows
+/// the popup was used again in the meantime and must be kept.
+static DETAIL_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// Destroy the hidden detail popup after `DETAIL_IDLE` of not being used.
+/// A hidden WebKitGTK webview still holds a whole renderer process
+/// (~150 MB RSS); destroying it frees that, and `show_detail_window`
+/// rebuilds the window when the popup is next needed.
+const DETAIL_IDLE: std::time::Duration = std::time::Duration::from_secs(180);
+
+fn reap_detail_later(app: &tauri::AppHandle) {
+    DETAIL_GEN.fetch_add(1, Ordering::SeqCst);
+    let gen = DETAIL_GEN.load(Ordering::SeqCst);
+    let a = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(DETAIL_IDLE);
+        if DETAIL_GEN.load(Ordering::SeqCst) != gen {
+            return; // shown (or re-hidden) again meanwhile
+        }
+        let a2 = a.clone();
+        let _ = a.run_on_main_thread(move || {
+            if let Some(w) = a2.get_webview_window("detail") {
+                if !w.is_visible().unwrap_or(true) {
+                    let _ = w.destroy();
+                    eprintln!("rdm-ui: detail popup idle, destroyed (webkit renderer freed)");
+                }
+            }
+        });
+    });
 }
 
 /// Job id the detail popup should render; the webview asks for it once it is
@@ -690,17 +725,19 @@ fn main() {
                     eprintln!("rdm-ui socket loop: {e}");
                 }
             });
-            // pre-build the compact detail popup hidden: browser offers then
-            // pop it with show()+focus() only, no webkit init on the click path
-            if let Err(e) = build_detail(app.handle(), false) {
-                eprintln!("rdm-ui: detail pre-create failed: {e}");
-            }
+            // the detail popup is built lazily: an idle WebKitGTK renderer
+            // costs ~150 MB RSS, so it must not sit hidden from startup
             Ok(())
         })
         // closing the window keeps RDM available in the tray; quit from there
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if TRAY_OK.load(std::sync::atomic::Ordering::Relaxed) {
+                if window.label() == "detail" {
+                    // hide now, destroy after the idle timeout if unused
+                    api.prevent_close();
+                    let _ = window.hide();
+                    reap_detail_later(window.app_handle());
+                } else if TRAY_OK.load(std::sync::atomic::Ordering::Relaxed) {
                     api.prevent_close();
                     let _ = window.hide();
                 }
