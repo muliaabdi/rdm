@@ -1851,6 +1851,7 @@ async fn run_direct_attempt(
     let handle = tokio::spawn(download(job.clone(), tx, kill_rx.clone()));
     let mut last = Instant::now() - Duration::from_secs(10);
     let mut transient: Option<String> = None;
+    let mut terminal_seen = false;
     while let Some(p) = rx.recv().await {
         let mut line: Option<String> = None;
         let mut terminal: Option<(&'static str, Option<String>)> = None;
@@ -1891,6 +1892,7 @@ async fn run_direct_attempt(
                 *size = Some(*s);
                 line = Some(json!({"t":"done","id":id,"size":s,"sha256":sha256}).to_string());
                 terminal = Some(("completed", None));
+                terminal_seen = true;
             }
             Progress::Failed { error } => {
                 if attempt < AUTO_RETRY_MAX && retryable_error(error) {
@@ -1898,6 +1900,7 @@ async fn run_direct_attempt(
                 } else {
                     line = Some(json!({"t":"failed","id":id,"error":error}).to_string());
                     terminal = Some(("failed", Some(error.clone())));
+                    terminal_seen = true;
                 }
             }
             Progress::Cancelled { total_done } => {
@@ -1911,6 +1914,7 @@ async fn run_direct_attempt(
                     .unwrap_or("cancelled");
                 line = Some(json!({"t":intent,"id":id,"done":done}).to_string());
                 terminal = Some((intent, None));
+                terminal_seen = true;
             }
             Progress::SegmentDone { .. } => {}
         }
@@ -1926,8 +1930,28 @@ async fn run_direct_attempt(
             break;
         }
     }
-    let _ = handle.await;
-    transient
+    if transient.is_some() {
+        return transient;
+    }
+    if terminal_seen {
+        return None;
+    }
+    // The engine returned before emitting any event — typically the probe
+    // bailing on an HTTP error (`?` propagation in download()). Without this
+    // the channel just closes and the job would sit in "running" forever.
+    let err = match handle.await {
+        Ok(Ok(())) => "download ended without an event".to_string(),
+        Ok(Err(e)) => format!("{e:#}"),
+        Err(e) => format!("download task panicked: {e}"),
+    };
+    if attempt < AUTO_RETRY_MAX && retryable_error(&err) {
+        return Some(err);
+    }
+    let _ = app
+        .events
+        .send(json!({"t":"failed","id":id,"error":err}).to_string());
+    app.db_update(id, *done, "failed", Some(&err), *size);
+    None
 }
 
 fn list_jobs(app: &App) -> Result<serde_json::Value> {
