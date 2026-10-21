@@ -422,37 +422,70 @@ async fn update_ytdlp() {
 }
 
 async fn handle_client(app: Arc<App>, stream: UnixStream) {
-    let (r, mut w) = stream.into_split();
+    let (r, w) = stream.into_split();
     let mut lines = BufReader::new(r).lines();
     let mut evrx = app.events.subscribe();
+    // single writer so replies from spawned handlers interleave safely with
+    // loop replies and broadcast events
+    let (wtx, mut wrx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let mut w = w;
+    let writer = tokio::spawn(async move {
+        while let Some(s) = wrx.recv().await {
+            if write_line(&mut w, &s).await.is_err() {
+                break;
+            }
+        }
+        let _ = w.shutdown().await;
+    });
     // greet new clients with current settings so the extension can refresh
     // its takeover allow-list without polling
-    let _ = write_line(
-        &mut w,
-        &json!({"t":"settings","settings":settings_json()}).to_string(),
-    )
-    .await;
+    let _ = wtx.send(json!({"t":"settings","settings":settings_json()}).to_string());
     loop {
         tokio::select! {
             line = lines.next_line() => {
                 let Ok(Some(line)) = line else { break };
                 if line.trim().is_empty() { continue; }
+                // yt-dlp extraction can take tens of seconds (YouTube JS
+                // challenges). The pill prefetches formats as soon as a page
+                // loads, and the click that follows (offer-page) would queue
+                // behind that on this connection — the popup must not wait.
+                // Replies are matched by url/t, never by order.
+                let is_extract = serde_json::from_str::<serde_json::Value>(&line)
+                    .ok()
+                    .and_then(|v| v["t"].as_str().map(|t| t == "extract"))
+                    .unwrap_or(false);
+                if is_extract {
+                    let app = app.clone();
+                    let wtx = wtx.clone();
+                    tokio::spawn(async move {
+                        let resp = match handle_line(app, &line).await {
+                            Ok(Some(s)) => s,
+                            Ok(None) => return,
+                            Err(e) => json!({"t":"error","error":e.to_string()}).to_string(),
+                        };
+                        let _ = wtx.send(resp);
+                    });
+                    continue;
+                }
                 let resp = match handle_line(app.clone(), &line).await {
                     Ok(Some(s)) => s,
                     Ok(None) => continue,
                     Err(e) => json!({"t":"error","error":e.to_string()}).to_string(),
                 };
-                if write_line(&mut w, &resp).await.is_err() { break; }
+                let _ = wtx.send(resp);
             }
             ev = evrx.recv() => {
                 match ev {
-                    Ok(s) => { if write_line(&mut w, &s).await.is_err() { break; } }
+                    Ok(s) => { let _ = wtx.send(s); }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(_) => break,
                 }
             }
         }
     }
+    drop(wtx);
+    // drain late extract replies before the write half goes away
+    let _ = writer.await;
 }
 
 async fn write_line(w: &mut tokio::net::unix::OwnedWriteHalf, s: &str) -> std::io::Result<()> {
