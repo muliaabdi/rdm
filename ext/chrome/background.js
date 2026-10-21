@@ -66,6 +66,15 @@ function extAllowed(name, url) {
   return !!e && interceptExt.includes(e);
 }
 
+// One-time-token URLs: the browser's own request already consumed the token
+// (headers arrive before onDeterminingFilename fires), so any takeover can
+// only 400. Keep these downloads native - e.g. Google Docs export.
+const NATIVE_ONLY = [
+  /^https:\/\/doc-[^/]*docstext\.googleusercontent\.com\/export\//i,
+  /^https:\/\/docs\.google\.com\/.+\/export\//i,
+];
+const nativeOnly = (u) => NATIVE_ONLY.some((re) => re.test(u));
+
 // Concurrent extracts can finish out of order: prefer the waiter whose url
 // matches the reply, and only fall back to arrival order.
 function takeWaiter(m) {
@@ -358,6 +367,10 @@ chrome.downloads.onChanged.addListener(async (delta) => {
     dlog(`onChanged id=${delta.id} file="${delta.filename.current.split(/[\\/]/).pop()}" parked=${!!p}`);
     if (!p) return;
     const name = delta.filename.current.split(/[\\/]/).pop() || "";
+    if (nativeOnly(p.url)) {
+      dlog(`native-only (late) url=${p.url.slice(0, 120)}`);
+      return;
+    }
     if (!extAllowed(name, p.url)) return; // not in the allow-list: keep it native
     await freshSettings();
     if (!intercept) return;
@@ -379,6 +392,10 @@ chrome.downloads.onCreated.addListener(async (item) => {
     const url = item.finalUrl || item.url;
     if (!/^https?:/i.test(url)) return;
     if (url.startsWith("blob:") || url.startsWith("data:")) return;
+    if (nativeOnly(url)) {
+      dlog(`native-only url=${url.slice(0, 120)}`);
+      return; // browser keeps its own request (token already consumed)
+    }
 
     const name = (item.filename || "").split(/[\\/]/).pop() || nameFromUrl(url);
     if (!extAllowed(name, url)) {
