@@ -24,6 +24,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 use rdm_core::{download, job_from_url, Job, Limits, Progress};
 
 pub mod gallery;
+pub mod packer;
 pub mod ytdlp;
 
 pub fn socket_path() -> PathBuf {
@@ -1421,6 +1422,50 @@ async fn run_page(
                             cancel_page(&app, id).await;
                             return;
                         }
+                    }
+                }
+                // last resort: some hosts (lulustream / luluvido, ...) have no
+                // extractor support at all, but embed the HLS playlist inside
+                // a Dean Edwards packed script — unpack it and hand the URL to
+                // the plain HLS engine
+                let rescue =
+                    packer::extract(&offer.url, offer.ua.as_deref(), offer.cookie.as_deref());
+                tokio::pin!(rescue);
+                let rescued = tokio::select! {
+                    res = &mut rescue => res.unwrap_or(None),
+                    _ = kill_extract.changed() => {
+                        cancel_page(&app, id).await;
+                        return;
+                    }
+                };
+                if let Some((m3u8, title)) = rescued {
+                    tracing::info!(target: "ext", "packer rescue: {} -> {m3u8}", offer.url);
+                    let mut o = offer.clone();
+                    o.url = m3u8;
+                    o.referer = Some(offer.url.clone());
+                    o.filename = Some(format!(
+                        "{}.ts",
+                        rdm_core::engine::sanitize_filename(&title)
+                    ));
+                    if let Ok((mut job, out_path, filename)) = build_job(&o) {
+                        job.limits.limiter = Some(app.limiter.clone());
+                        app.db_exec({
+                            let out_path = out_path.clone();
+                            let filename = filename.clone();
+                            move |db| {
+                                db.execute(
+                                    "UPDATE jobs SET filename=?1, out_path=?2 WHERE id=?3",
+                                    rusqlite::params![filename, out_path, id as i64],
+                                )?;
+                                Ok(())
+                            }
+                        });
+                        db_status(&app, id, "running");
+                        let _ = app
+                            .events
+                            .send(json!({"t":"status","id":id,"status":"running"}).to_string());
+                        run_direct(app, id, job, kill_rx).await;
+                        return;
                     }
                 }
                 app.db_update(id, 0, "failed", Some(&format!("{media_err:#}")), None);

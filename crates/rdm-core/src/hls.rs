@@ -86,6 +86,8 @@ struct Plan {
     target_dur: f64,
     ended: bool,
     items: Vec<Item>,
+    /// master playlist: URL of the highest-bandwidth variant to descend into
+    variant: Option<String>,
 }
 
 fn state_path(out: &std::path::Path) -> PathBuf {
@@ -154,6 +156,11 @@ fn parse_playlist(text: &str, base: &str) -> Result<Plan> {
     let mut cur_key: Option<Arc<Key>> = None;
     let mut cur_map: Option<String> = None;
     let mut map_emitted: Option<String> = None;
+    // master playlist state: after #EXT-X-STREAM-INF the next bare line is
+    // a variant URL, not a media segment
+    let mut master = false;
+    let mut pending_bw: Option<u64> = None;
+    let mut best: Option<(u64, String)> = None;
 
     for line in text.lines() {
         let line = line.trim();
@@ -161,6 +168,14 @@ fn parse_playlist(text: &str, base: &str) -> Result<Plan> {
             continue;
         }
         if !line.starts_with('#') {
+            if pending_bw.is_some() {
+                let url = join_url(base, line);
+                let bw = pending_bw.take().unwrap_or(0);
+                if best.as_ref().map(|(b, _)| bw > *b).unwrap_or(true) {
+                    best = Some((bw, url));
+                }
+                continue;
+            }
             let url = join_url(base, line);
             // the active map (if any, and if not already emitted) opens a
             // new stream group: write the init before this media segment
@@ -179,7 +194,10 @@ fn parse_playlist(text: &str, base: &str) -> Result<Plan> {
             continue;
         }
         let lower = line.to_ascii_lowercase();
-        if lower.starts_with("#ext-x-key") {
+        if lower.starts_with("#ext-x-stream-inf") {
+            master = true;
+            pending_bw = attr(line, "BANDWIDTH").and_then(|b| b.trim().parse().ok());
+        } else if lower.starts_with("#ext-x-key") {
             let method = attr(line, "METHOD").unwrap_or("").to_string();
             if method.eq_ignore_ascii_case("none") || method.is_empty() {
                 cur_key = None;
@@ -218,6 +236,18 @@ fn parse_playlist(text: &str, base: &str) -> Result<Plan> {
             bail!("EXT-X-BYTERANGE segments are not supported");
         }
     }
+    if master {
+        // a variant list, not media: the caller re-fetches the chosen URL
+        let Some((_, url)) = best else {
+            bail!("master playlist without variants");
+        };
+        return Ok(Plan {
+            target_dur,
+            ended,
+            items: Vec::new(),
+            variant: Some(url),
+        });
+    }
     if items.is_empty() {
         bail!("no media segments in playlist");
     }
@@ -225,6 +255,7 @@ fn parse_playlist(text: &str, base: &str) -> Result<Plan> {
         target_dur,
         ended,
         items,
+        variant: None,
     })
 }
 
@@ -259,6 +290,46 @@ async fn fetch_bytes(
         }
         Ok(r) => bail!("HTTP {} for {url}", r.status()),
         Err(e) => bail!("{e}"),
+    }
+}
+
+/// Fetch `url`, descending through master playlists (variant lists) until a
+/// media playlist is found. Returns the media playlist URL (kept for resume
+/// state) and its parsed plan.
+async fn resolve_media(
+    client: &reqwest::Client,
+    headers: &reqwest::header::HeaderMap,
+    url: &str,
+) -> Result<(String, Plan)> {
+    let mut url = url.to_string();
+    for _ in 0..4 {
+        let bytes = fetch_bytes(client, headers, &url).await?;
+        let text = String::from_utf8(bytes).context("playlist is not utf-8")?;
+        let plan = parse_playlist(&text, &url)?;
+        match plan.variant.clone() {
+            Some(v) => {
+                tracing::debug!("hls: master playlist -> {v}");
+                url = v;
+            }
+            None => return Ok((url, plan)),
+        }
+    }
+    bail!("playlist nesting too deep (master -> master -> ...)")
+}
+
+/// Normalize a URL for resume-state comparison: lowercase host, drop query
+/// and fragment. Signed playlists rotate tokens in the query (`?t=...&s=`)
+/// and reqwest lowercases the host of `resp.url()`, so raw strings from two
+/// fetches of the same playlist never match otherwise.
+fn norm_url(u: &str) -> String {
+    let u = u.split('#').next().unwrap_or(u);
+    let u = u.split('?').next().unwrap_or(u);
+    match u.split_once("://") {
+        Some((scheme, rest)) => match rest.split_once('/') {
+            Some((h, p)) => format!("{scheme}://{}/{p}", h.to_ascii_lowercase()),
+            None => format!("{scheme}://{}", rest.to_ascii_lowercase()),
+        },
+        None => u.to_string(),
     }
 }
 
@@ -313,26 +384,17 @@ pub async fn download(
     job: Job,
     events: mpsc::Sender<Progress>,
     kill: watch::Receiver<bool>,
-    content_type: Option<String>,
+    _content_type: Option<String>,
 ) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .build()?;
 
-    let resp = client
-        .get(&job.url)
-        .headers(job.headers.clone())
-        .send()
-        .await
-        .context("playlist request failed")?;
-    if !resp.status().is_success() {
-        bail!("HTTP {} for playlist {}", resp.status(), job.url);
-    }
-    let final_url = resp.url().to_string();
-    let _ = content_type;
-    let text = resp.text().await.context("playlist read failed")?;
-    let plan = parse_playlist(&text, &final_url)?;
+    let (final_url, plan) = match resolve_media(&client, &job.headers, &job.url).await {
+        Ok(r) => r,
+        Err(e) => return Err(e.context("playlist request failed")),
+    };
 
     let filename = job
         .out
@@ -366,7 +428,8 @@ pub async fn download(
     // different playlist marks segments complete that were never written.
     // Same reasoning for a state file whose output file has disappeared
     // (indices recorded, bytes gone -> holes at the front).
-    let state_ok = !st.url.is_empty() && st.url == final_url && job.out.exists();
+    let state_ok =
+        !st.url.is_empty() && norm_url(&st.url) == norm_url(&final_url) && job.out.exists();
     if !fresh && !state_ok {
         tracing::info!(
             "hls: discarding resume state for {} (state url {}, wanted {final_url})",
@@ -683,20 +746,8 @@ async fn run_live(
         let plan = if poll_n == 0 {
             first.clone_items()
         } else {
-            match fetch_bytes(client, &job.headers, &job.url).await {
-                Ok(t) => match String::from_utf8(t)
-                    .map_err(|e| anyhow::anyhow!("playlist utf8: {e}"))
-                    .and_then(|t| parse_playlist(&t, &job.url))
-                {
-                    Ok(p) => p,
-                    Err(e) => {
-                        tracing::warn!("live poll failed: {e:#}");
-                        if !sleep_killable(&mut kill, 2.0).await {
-                            break;
-                        }
-                        continue;
-                    }
-                },
+            match resolve_media(client, &job.headers, &job.url).await {
+                Ok((_, p)) => p,
                 Err(e) => {
                     tracing::warn!("live poll failed: {e:#}");
                     if !sleep_killable(&mut kill, 2.0).await {
@@ -925,6 +976,7 @@ impl Plan {
             target_dur: self.target_dur,
             ended: self.ended,
             items: self.items.clone(),
+            variant: self.variant.clone(),
         }
     }
 }

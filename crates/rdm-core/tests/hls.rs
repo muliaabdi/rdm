@@ -56,12 +56,27 @@ async fn serve() -> String {
     let st = St(Arc::new((0..NSEG).map(seg_bytes).collect()));
     let app = axum::Router::new()
         .route("/vod.m3u8", axum::routing::get(playlist))
+        .route("/master.m3u8", axum::routing::get(master_playlist))
+        .route("/hi.m3u8", axum::routing::get(playlist))
         .route("/{i}", axum::routing::get(segment))
         .with_state(st);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     format!("http://{addr}/vod.m3u8")
+}
+
+/// Master playlist with two variants: the higher-bandwidth `hi.m3u8` must
+/// be chosen, not downloaded as if it were a media segment.
+async fn master_playlist() -> Response {
+    let body = "#EXTM3U\n\
+        #EXT-X-STREAM-INF:BANDWIDTH=100000,RESOLUTION=416x234\nlo.m3u8?token=a\n\
+        #EXT-X-STREAM-INF:BANDWIDTH=700000,RESOLUTION=636x360\nhi.m3u8?token=b\n";
+    (
+        [(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")],
+        body,
+    )
+        .into_response()
 }
 
 async fn tmp_out(name: &str) -> PathBuf {
@@ -114,6 +129,34 @@ async fn hls_download_matches_concat() {
     );
     // state file cleaned up on completion
     assert!(!dir.join("vod.ts.rdm-hls.json").exists());
+}
+
+#[tokio::test]
+async fn hls_master_playlist_descends_into_best_variant() {
+    let base = serve().await;
+    let url = base.replace("vod.m3u8", "master.m3u8");
+    let dir = tmp_out("master").await;
+    let job = job_from_url(&url, Some(dir.clone()), 4, Limits::default());
+    let (tx, mut rx) = mpsc::channel(256);
+    let kill = watch::channel(false).1;
+    tokio::spawn(download(job, tx, kill));
+
+    let mut completed = false;
+    while let Some(p) = rx.recv().await {
+        match p {
+            Progress::Completed { .. } => completed = true,
+            Progress::Failed { error } => panic!("hls failed: {error}"),
+            _ => {}
+        }
+    }
+    assert!(completed, "no Completed event");
+    // master.m3u8 -> ts, filled with the segments of the hi variant
+    let out = dir.join("master.ts");
+    assert_eq!(
+        std::fs::read(&out).unwrap_or_default(),
+        full(),
+        "master playlist must resolve to media segments, not playlist bytes"
+    );
 }
 
 #[tokio::test]
