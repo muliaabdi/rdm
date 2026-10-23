@@ -212,6 +212,17 @@ impl App {
         .flatten()
     }
 
+    /// Current (filename, out_path) row, for detecting engine-side renames.
+    fn db_get_name(&self, id: u64) -> Option<(String, String)> {
+        let db = self.db.lock().ok()?;
+        db.query_row(
+            "SELECT filename, out_path FROM jobs WHERE id=?1",
+            [id as i64],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )
+        .ok()
+    }
+
     /// Newest non-terminal job id already downloading `url`, if any.
     fn db_active_by_url(&self, url: &str) -> Option<u64> {
         let db = self.db.lock().ok()?;
@@ -1879,9 +1890,35 @@ async fn run_direct_attempt(
         let mut line: Option<String> = None;
         let mut terminal: Option<(&'static str, Option<String>)> = None;
         match &p {
-            Progress::Started { size: s, .. } => {
+            Progress::Started {
+                size: s, filename, ..
+            } => {
                 *size = *s;
-                line = Some(json!({"t":"started","id":id,"size":s}).to_string());
+                let mut ev = json!({"t":"started","id":id,"size":s});
+                // the engine can rescue information-less names mid-start
+                // (Gmail "/attachment/u/0/" -> "0" via Content-Disposition):
+                // carry that rename into the DB row and the UI list
+                if let Some((old, out_path)) = app.db_get_name(id) {
+                    if old != *filename {
+                        let new_out = std::path::Path::new(&out_path)
+                            .parent()
+                            .map(|d| d.join(filename.trim_start_matches('/')).to_string_lossy().to_string());
+                        if let Some(new_out) = new_out {
+                            let (f, o) = (filename.clone(), new_out.clone());
+                            app.db_exec(move |db| {
+                                db.execute(
+                                    "UPDATE jobs SET filename=?1, out_path=?2 WHERE id=?3",
+                                    rusqlite::params![f, o, id as i64],
+                                )?;
+                                Ok(())
+                            });
+                            ev["filename"] = json!(filename);
+                            ev["out_path"] = json!(new_out);
+                            tracing::info!(target: "ext", "job {id}: renamed \"{old}\" -> \"{filename}\"");
+                        }
+                    }
+                }
+                line = Some(ev.to_string());
             }
             Progress::Detail { segments } => {
                 line = Some(json!({"t":"detail","id":id,"segments":segments}).to_string());

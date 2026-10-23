@@ -248,6 +248,7 @@ struct Probe {
     last_modified: Option<String>,
     final_url: reqwest::Url,
     content_type: Option<String>,
+    cd_filename: Option<String>,
     playlist: bool,
 }
 
@@ -294,8 +295,14 @@ async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
     }
     let _ = req; // drop body via resp below
     let headers_ct = resp.headers().get(reqwest::header::CONTENT_TYPE).cloned();
+    let headers_cd = resp
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let _ = resp.bytes().await;
     let content_type = headers_ct.and_then(|v| v.to_str().ok().map(str::to_string));
+    let cd_filename = headers_cd.as_deref().and_then(cd_name);
     let playlist = crate::hls::looks_like_playlist(content_type.as_deref(), final_url.as_str());
     Ok(Probe {
         size,
@@ -304,8 +311,128 @@ async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
         last_modified,
         final_url,
         content_type,
+        cd_filename,
         playlist,
     })
+}
+
+/// Minimal percent-decoder for `filename*=UTF-8''...` values.
+fn pct_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Extract a filename from a Content-Disposition header value.
+/// RFC 5987 `filename*` wins (true UTF-8), plain `filename` is the fallback
+/// (its escapes are latin-1 at best; browsers still send raw UTF-8 there).
+fn cd_name(cd: &str) -> Option<String> {
+    for part in cd.split(';').map(str::trim) {
+        if part.get(..10).is_some_and(|p| p.eq_ignore_ascii_case("filename*=")) {
+            let v = part[10..].trim();
+            // UTF-8''name.pdf — skip the charset prefix when present
+            let name = v.split("''").nth(1).unwrap_or(v);
+            let name = name.trim_matches('"').trim();
+            if !name.is_empty() {
+                return Some(pct_decode(name));
+            }
+        }
+    }
+    for part in cd.split(';').map(str::trim) {
+        if part.get(..9).is_some_and(|p| p.eq_ignore_ascii_case("filename=")) {
+            let v = part[9..].trim();
+            let v = v.trim_matches('"').trim();
+            if !v.is_empty() && v != "\\" && v != "." && v != ".." {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Common extension for a MIME type; used only to rescue extension-less
+/// names (".../u/0/", ".../download") so the file opens with the right app.
+fn ext_for_content_type(ct: Option<&str>) -> Option<&'static str> {
+    let base = ct?.split(';').next()?.trim().to_ascii_lowercase();
+    Some(match base.as_str() {
+        "application/pdf" => "pdf",
+        "application/zip" => "zip",
+        "application/x-rar-compressed" | "application/vnd.rar" => "rar",
+        "application/x-7z-compressed" => "7z",
+        "application/x-iso9660-image" => "iso",
+        "application/json" => "json",
+        "application/epub+zip" => "epub",
+        "application/msword" => "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/vnd.ms-excel" => "xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+        "application/vnd.ms-powerpoint" => "ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => "pptx",
+        "application/octet-stream" => return None, // could be anything
+        "text/plain" => "txt",
+        "text/csv" => "csv",
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        "image/avif" => "avif",
+        "audio/mpeg" => "mp3",
+        "audio/mp4" => "m4a",
+        "audio/ogg" => "ogg",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/flac" => "flac",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/x-matroska" => "mkv",
+        "video/quicktime" => "mov",
+        "video/mpeg" => "mpeg",
+        _ => return None,
+    })
+}
+
+/// Decide a better output name when the URL-derived one carries no
+/// information (no extension, e.g. Gmail's `/attachment/u/0/` -> "0").
+/// `true` only when the current name has no extension and a real one is
+/// derivable — names that already have an extension are never touched.
+fn better_name(out: &std::path::Path, probe: &Probe) -> Option<String> {
+    let cur = out.file_name()?.to_string_lossy().to_string();
+    if cur.contains('.') && cur.rsplit('.').next().is_some_and(|e| !e.is_empty()) {
+        return None; // already has an extension
+    }
+    if let Some(cd) = probe.cd_filename.as_deref() {
+        let clean = sanitize_filename(cd);
+        if clean != "download" && clean.contains('.') {
+            return Some(clean);
+        }
+    }
+    let ext = ext_for_content_type(probe.content_type.as_deref())?;
+    // keep the URL stem when it is not pure noise ("0", "download", "bin")
+    let stem = cur.trim();
+    let stem = if stem.is_empty()
+        || stem == "download"
+        || stem == "bin"
+        || stem.chars().all(|c| c.is_ascii_digit())
+    {
+        "download"
+    } else {
+        stem
+    };
+    Some(format!("{stem}.{ext}"))
 }
 
 enum Outcome {
@@ -370,6 +497,16 @@ pub async fn download(
             job.out.set_extension("ts");
         }
         return crate::hls::download(job, events, kill, probe.content_type).await;
+    }
+
+    // Rescue meaningless URL-derived names (no extension, e.g. Gmail's
+    // "/attachment/u/0/" -> "0") using Content-Disposition or Content-Type
+    // from the probe response. Must run before the part-state path is
+    // derived from job.out, so state and output stay a matched pair.
+    let mut job = job;
+    if let Some(better) = better_name(&job.out, &probe) {
+        tracing::info!("rename {} -> {better} (content-disposition/type)", job.out.display());
+        job.out = job.out.with_file_name(better);
     }
 
     let filename = job
@@ -847,6 +984,54 @@ mod tests {
         assert_eq!(category_of("x.apk"), "apps");
         assert_eq!(category_of("x.torrent"), "others");
         assert_eq!(category_of("noext"), "others");
+    }
+
+    #[test]
+    fn cd_name_prefers_rfc5987_then_plain() {
+        assert_eq!(
+            cd_name("attachment; filename=\"invoice.pdf\""),
+            Some("invoice.pdf".into())
+        );
+        assert_eq!(
+            cd_name("attachment; filename*=UTF-8''laporan%20q3.pdf"),
+            Some("laporan q3.pdf".into())
+        );
+        // RFC 5987 wins over plain
+        assert_eq!(
+            cd_name("attachment; filename=\"a.pdf\"; filename*=UTF-8''b%2Epdf"),
+            Some("b.pdf".into())
+        );
+        assert_eq!(cd_name("inline"), None);
+        assert_eq!(cd_name("attachment; filename=\"\""), None);
+    }
+
+    #[test]
+    fn better_name_rescues_extension_less_names_only() {
+        let mk = |cd: Option<&str>, ct: Option<&str>| Probe {
+            size: None,
+            accept_ranges: false,
+            etag: None,
+            last_modified: None,
+            final_url: reqwest::Url::parse("https://x.example/a").unwrap(),
+            content_type: ct.map(str::to_string),
+            cd_filename: cd.map(str::to_string),
+            playlist: false,
+        };
+        // Gmail shape: "0" + application/pdf -> Content-Disposition wins
+        let p = mk(Some("Kontrak 2026.pdf"), Some("application/pdf"));
+        assert_eq!(better_name(std::path::Path::new("/tmp/0"), &p).as_deref(), Some("Kontrak 2026.pdf"));
+        // no CD: extension from Content-Type, noisy digit stem replaced
+        let p = mk(None, Some("application/pdf"));
+        assert_eq!(better_name(std::path::Path::new("/tmp/0"), &p).as_deref(), Some("download.pdf"));
+        // meaningful stem keeps the stem
+        let p = mk(None, Some("application/pdf"));
+        assert_eq!(better_name(std::path::Path::new("/tmp/laporan"), &p).as_deref(), Some("laporan.pdf"));
+        // names that already carry an extension are never touched
+        let p = mk(Some("evil.exe"), Some("application/pdf"));
+        assert_eq!(better_name(std::path::Path::new("/tmp/0.pdf"), &p), None);
+        // unknown content-type and no CD -> leave alone
+        let p = mk(None, Some("application/octet-stream"));
+        assert_eq!(better_name(std::path::Path::new("/tmp/0"), &p), None);
     }
 
     #[test]

@@ -433,21 +433,64 @@
   #dlg .cfld span i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   #dlg .cfld input { margin: 0; padding: 6px 9px; }
 
-  /* settings dialog: tabs + compact number grid */
-  #dlg.settings { width: 540px; }
+  /* settings dialog: tabs + compact rows */
+  #dlg.settings { width: 560px; }
   #dlg .tabs {
-    display: flex; gap: 2px; margin: 0 0 12px; border-bottom: 1px solid var(--line); flex: none;
+    display: flex; gap: 2px; margin: 0 0 14px; border-bottom: 1px solid var(--line); flex: none;
   }
   #dlg .tabs button {
-    padding: 7px 12px; border: 0; cursor: default; margin-bottom: -1px;
+    padding: 8px 14px; border: 0; cursor: default; margin-bottom: -1px; font-size: 12px;
     background: none; color: var(--dim);
     border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0;
   }
   #dlg .tabs button:hover { color: var(--txt); background: var(--btn-hi); }
   #dlg .tabs button.on { color: var(--txt); border-bottom-color: var(--accent); font-weight: 600; }
+  #dlg .tabs button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   #dlg .tabpane { display: none; }
   #dlg .tabpane.on { display: block; }
-  #dlg .nums { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  #dlg .nums { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  /* folder row: path input + attached browse button */
+  #dlg .fldpath { flex: 1; display: flex; min-width: 0; }
+  #dlg .fldpath input { flex: 1; min-width: 0; border-radius: 8px 0 0 8px; border-right: 0; }
+  #dlg .fldpath button {
+    flex: none; width: 40px; padding: 0; margin: 0; display: grid; place-items: center;
+    border: 1px solid var(--line2); border-left: 0; border-radius: 0 8px 8px 0;
+    background: var(--btn-bg); color: var(--txt2);
+  }
+  #dlg .fldpath button:hover { color: var(--txt); border-color: var(--line-hov); background: var(--btn-hi); }
+  #dlg .fldpath button svg { width: 15px; height: 15px; }
+  /* DNS: mode select with the custom URL field attached underneath */
+  #dlg .dnsgrp {
+    flex: 1; display: flex; flex-direction: column; min-width: 0;
+    border: 1px solid var(--line2); border-radius: 8px; background: var(--input-bg);
+    transition: border-color .12s ease;
+  }
+  #dlg .dnsgrp:hover { border-color: var(--line-hov); }
+  #dlg .dnsgrp:focus-within { outline: 2px solid var(--focus); outline-offset: -1px; border-color: var(--focus); }
+  #dlg .dnsgrp select, #dlg .dnsgrp input { border: 0; background: none; }
+  #dlg .dnsgrp select:focus-visible, #dlg .dnsgrp input:focus-visible { outline: none; }
+  #dlg .dnsgrp select { border-radius: 8px 8px 0 0; }
+  #dlg .dnsgrp input {
+    display: none; border-radius: 0 0 8px 8px; border-top: 1px dashed var(--line);
+    font-family: inherit;
+  }
+  #dlg .dnsgrp.custom input { display: block; }
+  /* interface tab: full-width toggle rows, checkbox right-aligned */
+  #dlg label.tgl {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 9px 2px; margin-bottom: 0; border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  #dlg label.tgl:last-of-type { border-bottom: 0; }
+  #dlg label.tgl span { font-size: 12px; color: var(--txt); }
+  #dlg label.tgl input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #2b6cff; }
+  #dlg label.tgl:hover span { color: var(--accent); }
+  /* category folders: "+ add" select reads as an action, not a data field */
+  #dlg .ovadd { margin-top: 8px; }
+  #dlg .ovadd select {
+    border: 1px dashed var(--line2); background: none; color: var(--dim); margin-bottom: 0;
+    text-align: center; text-align-last: center; appearance: none; -webkit-appearance: none; cursor: default;
+  }
+  #dlg .ovadd select:hover { color: var(--txt); border-color: var(--accent); background: var(--btn-hi); }
 
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -628,7 +671,7 @@ const I18N = {
     err_not_connected: "not connected to the daemon",
     err_gone_file: "File no longer exists on disk", err_gone_folder: "Folder no longer exists",
     err_no_opener: "No app found to open this",
-    fld_ftype: "Files type", fld_extra: "Extra types",
+    fld_ftype: "File types", fld_extra: "Extra types",
     ft_all: "All files", ft_images: "Images", ft_videos: "Videos", ft_audio: "Audio",
     ft_docs: "Documents", ft_apps: "Apps", ft_arch: "Archives", ft_others: "Others",
     ft_empty_all: "No types selected — intercepting all files",
@@ -638,6 +681,7 @@ const I18N = {
     opt_dns_cf: "Cloudflare DoH (1.1.1.1) [Bypass ISP]",
     opt_dns_gg: "Google DoH (8.8.8.8)", opt_dns_custom: "Custom DoH URL",
     ph_dns_custom: "https://your-doh-server/dns-query",
+    sec_behavior: "Behavior", btn_browse: "Browse",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
     col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
   },
@@ -699,6 +743,7 @@ const I18N = {
     opt_dns_cf: "Cloudflare DoH (1.1.1.1) [Bypass Blokir ISP]",
     opt_dns_gg: "Google DoH (8.8.8.8)", opt_dns_custom: "Kustom DoH URL",
     ph_dns_custom: "https://server-doh-anda/dns-query",
+    sec_behavior: "Perilaku", btn_browse: "Pilih",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
     col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
   },
@@ -1432,7 +1477,13 @@ listen("rdm", (ev) => {
     case "tray-select": if (jobs.has(m.id)) { selected = m.id; renderRows(); } break;
     case "formats": if (window.__onFormats) window.__onFormats(m); break;
     case "error": if (window.__onFormats) { const f = window.__onFormats; window.__onFormats = null; f({ __err: m.error }); } else toast(trErr(m.error || "daemon error")); break;
-    case "started": apply({ id: m.id, size: m.size }); break;
+    case "started": {
+      const patch = { id: m.id, size: m.size };
+      if (m.filename) { patch.filename = m.filename; patch.out_path = m.out_path; }
+      apply(patch);
+      if (m.filename) renderRows();
+      break;
+    }
     case "status": apply({ id: m.id, status: m.status, attempt: m.attempt, attempts: m.max }); renderRows(); break;
     case "progress": apply({ id: m.id, done: m.done, size: m.size, status: "running" }); break;
     case "detail":
@@ -1762,66 +1813,79 @@ $("b-options").onclick = async () => {
     if (v) catdirs[id] = v;
   }
   openModal(`<h3>${t("dlg_settings_title")}</h3>
-    <div class="tabs">
-      <button type="button" data-pane="p-dl" class="on">${t("tab_downloads")}</button>
-      <button type="button" data-pane="p-br">${t("tab_browser")}</button>
-      <button type="button" data-pane="p-ui">${t("tab_interface")}</button>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" aria-selected="true" data-pane="p-dl" class="on">${t("tab_downloads")}</button>
+      <button type="button" role="tab" aria-selected="false" data-pane="p-br">${t("tab_browser")}</button>
+      <button type="button" role="tab" aria-selected="false" data-pane="p-ui">${t("tab_interface")}</button>
     </div>
     <div class="dlgbody">
-    <div class="tabpane on" id="p-dl">
-    <div class="fld"><label>${t("fld_dir")}</label><input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}"></div>
+    <div class="tabpane on" id="p-dl" role="tabpanel">
+    <div class="fld"><label for="o-dir">${t("fld_dir")}</label>
+      <div class="fldpath">
+        <input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}" spellcheck="false">
+        <button type="button" id="o-browse" title="${t("btn_browse")}" aria-label="${t("btn_browse")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.3c0-.7.6-1.3 1.3-1.3h4l2 2.2h8.4c.7 0 1.3.6 1.3 1.3v8.2c0 .7-.6 1.3-1.3 1.3H4.8c-.7 0-1.3-.6-1.3-1.3z"/><path d="M3.5 19h12.2l4.8-8.4"/></svg></button>
+      </div></div>
     <div class="nums">
       <label class="cfld"><span>${t("fld_segments")}</span><input id="o-seg" type="number" min="1" max="32" value="${s.segments || 8}"></label>
       <label class="cfld"><span>${t("fld_parallel")}</span><input id="o-par" type="number" min="1" max="16" value="${s.max_parallel || 3}"></label>
       <label class="cfld"><span>${t("fld_speed")} (KiB/s)</span><input id="o-speed" type="number" min="0" step="64" value="${s.speed_limit || 0}"></label>
     </div>
-    <div class="fld"><label>${t("fld_dns")}</label>
-      <select id="o-dns">
-        <option value="cloudflare"${(s.dns_mode || "cloudflare") === "cloudflare" ? " selected" : ""}>${t("opt_dns_cf")}</option>
-        <option value="system"${s.dns_mode === "system" ? " selected" : ""}>${t("opt_dns_sys")}</option>
-        <option value="google"${s.dns_mode === "google" ? " selected" : ""}>${t("opt_dns_gg")}</option>
-        <option value="custom"${s.dns_mode === "custom" ? " selected" : ""}>${t("opt_dns_custom")}</option>
-      </select>
-    </div>
-    <div class="fld" id="o-dns-row" style="display:${s.dns_mode === "custom" ? "flex" : "none"}">
-      <label>&nbsp;</label>
-      <input id="o-dns-custom" placeholder="${esc(t("ph_dns_custom"))}" value="${esc(s.dns_custom || "")}" spellcheck="false">
+    <div class="fld"><label for="o-dns">${t("fld_dns")}</label>
+      <div class="dnsgrp${s.dns_mode === "custom" ? " custom" : ""}" id="o-dns-grp">
+        <select id="o-dns">
+          <option value="cloudflare"${(s.dns_mode || "cloudflare") === "cloudflare" ? " selected" : ""}>${t("opt_dns_cf")}</option>
+          <option value="system"${s.dns_mode === "system" ? " selected" : ""}>${t("opt_dns_sys")}</option>
+          <option value="google"${s.dns_mode === "google" ? " selected" : ""}>${t("opt_dns_gg")}</option>
+          <option value="custom"${s.dns_mode === "custom" ? " selected" : ""}>${t("opt_dns_custom")}</option>
+        </select>
+        <input id="o-dns-custom" placeholder="${esc(t("ph_dns_custom"))}" value="${esc(s.dns_custom || "")}" spellcheck="false">
+      </div>
     </div>
     <div class="sec">${t("fld_cats")}</div>
     <p class="cathint">${t("hint_cats")}</p>
     <div id="ovlist"></div>
     <div id="ovadd"></div>
     </div>
-    <div class="tabpane" id="p-br">
+    <div class="tabpane" id="p-br" role="tabpanel">
     <div class="fld"><label>${t("fld_ftype")}</label>
       <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
         <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
         ${FTYPES.map(([id, key, str]) => `<label class="fchk"><input type="checkbox" id="ft-${id}"${str.split(" ").every((x) => list.includes(x)) ? " checked" : ""}${allOn ? " disabled" : ""}><span>${t(key)}</span></label>`).join("")}
       </div></div>
-    <div class="fld"><label>${t("fld_extra")}</label><input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc(extras)}" spellcheck="false" autocomplete="off"></div>
+    <div class="fld"><label for="o-int">${t("fld_extra")}</label><input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc(extras)}" spellcheck="false" autocomplete="off"></div>
     </div>
-    <div class="tabpane" id="p-ui">
-    <div class="fld"><label>${t("fld_lang")}</label><select id="o-lang">
+    <div class="tabpane" id="p-ui" role="tabpanel">
+    <div class="fld"><label for="o-lang">${t("fld_lang")}</label><select id="o-lang">
       <option value="en"${lang === "en" ? " selected" : ""}>English</option>
       <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
-    <div class="fld"><label>${t("fld_theme")}</label><select id="o-theme">
+    <div class="fld"><label for="o-theme">${t("fld_theme")}</label><select id="o-theme">
       <option value="system"${(localStorage.rdm_theme || "system") === "system" ? " selected" : ""}>${t("opt_system")}</option>
       <option value="light"${localStorage.rdm_theme === "light" ? " selected" : ""}>${t("opt_light")}</option>
       <option value="dark"${localStorage.rdm_theme === "dark" ? " selected" : ""}>${t("opt_dark")}</option></select></div>
-    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-auto" type="checkbox"${auto ? " checked" : ""}><span>${t("fld_autostart")}</span></label></div>
-    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}><span>${t("fld_notify")}</span></label></div>
-    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-clip" type="checkbox"${s.clipboard_watch !== false ? " checked" : ""}><span>${t("fld_clipboard")}</span></label></div>
-    <div class="fld"><label>&nbsp;</label><label class="fchk"><input id="o-ytdlp" type="checkbox"${s.ytdlp_update !== false ? " checked" : ""}><span>${t("fld_ytdlp")}</span></label></div>
+    <div class="sec">${t("sec_behavior")}</div>
+    <label class="tgl"><span>${t("fld_autostart")}</span><input id="o-auto" type="checkbox"${auto ? " checked" : ""}></label>
+    <label class="tgl"><span>${t("fld_notify")}</span><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}></label>
+    <label class="tgl"><span>${t("fld_clipboard")}</span><input id="o-clip" type="checkbox"${s.clipboard_watch !== false ? " checked" : ""}></label>
+    <label class="tgl"><span>${t("fld_ytdlp")}</span><input id="o-ytdlp" type="checkbox"${s.ytdlp_update !== false ? " checked" : ""}></label>
     </div>
     </div>
     <div class="btns"><button id="o-cancel">${t("btn_cancel")}</button><button id="o-ok" class="pri">${t("btn_save")}</button></div>`);
   $("dlg").classList.add("hasbody", "settings");
   document.querySelectorAll("#dlg .tabs button").forEach((b) => {
     b.onclick = () => {
-      document.querySelectorAll("#dlg .tabs button").forEach((x) => x.classList.toggle("on", x === b));
+      document.querySelectorAll("#dlg .tabs button").forEach((x) => {
+        x.classList.toggle("on", x === b);
+        x.setAttribute("aria-selected", x === b ? "true" : "false");
+      });
       document.querySelectorAll("#dlg .tabpane").forEach((p) => p.classList.toggle("on", p.id === b.dataset.pane));
     };
   });
+  $("o-browse").onclick = async () => {
+    try {
+      const dir = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false } });
+      if (typeof dir === "string" && dir) $("o-dir").value = dir;
+    } catch {}
+  };
   const renderOv = () => {
     $("ovlist").innerHTML = FOLDER_CATS.filter(([id]) => id in catdirs).map(([id, key, col]) => `
       <div class="ovrow"><i style="background:${col}"></i><span>${t(key)}</span>
@@ -1857,7 +1921,9 @@ $("b-options").onclick = async () => {
   renderAdd();
   $("o-cancel").onclick = closeModal;
   $("o-dns").onchange = () => {
-    $("o-dns-row").style.display = $("o-dns").value === "custom" ? "flex" : "none";
+    const custom = $("o-dns").value === "custom";
+    $("o-dns-grp").classList.toggle("custom", custom);
+    if (custom) $("o-dns-custom").focus();
   };
   $("ft-all").onchange = () => {
     const on = $("ft-all").checked;
