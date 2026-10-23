@@ -1465,12 +1465,21 @@ async fn run_page(
                     packer::extract(&offer.url, offer.ua.as_deref(), offer.cookie.as_deref());
                 tokio::pin!(rescue);
                 let rescued = tokio::select! {
-                    res = &mut rescue => res.unwrap_or(None),
+                    res = &mut rescue => match res {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!(target: "ext", "packer rescue fetch failed: {e:#}");
+                            None
+                        }
+                    },
                     _ = kill_extract.changed() => {
                         cancel_page(&app, id).await;
                         return;
                     }
                 };
+                if rescued.is_none() {
+                    tracing::info!(target: "ext", "packer rescue: nothing packed in {}", offer.url);
+                }
                 if let Some((m3u8, title)) = rescued {
                     tracing::info!(target: "ext", "packer rescue: {} -> {m3u8}", offer.url);
                     let mut o = offer.clone();

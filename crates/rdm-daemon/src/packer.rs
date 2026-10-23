@@ -250,6 +250,20 @@ mod tests {
         );
     }
 
+    // real payload captured from sexkbj.top/embed/wfy6g9kacpgd — same
+    // player family, different token layout than the luluvido one
+    #[test]
+    fn unpacks_real_sexkbj_payload() {
+        let html = include_str!("../tests/fixtures/sx_packed.js");
+        let js = unpack(html).expect("packed script found");
+        let url = find_m3u8(&js).expect("m3u8 found");
+        assert!(url.contains("/hls2/"), "url = {url}");
+        assert!(
+            url.ends_with("master.m3u8") || url.contains("master.m3u8?"),
+            "url = {url}"
+        );
+    }
+
     #[test]
     fn plain_html_is_none() {
         assert!(unpack("<html><body>nothing packed</body></html>").is_none());

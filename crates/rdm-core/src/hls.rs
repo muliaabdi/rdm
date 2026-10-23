@@ -114,21 +114,12 @@ fn join_url(base: &str, seg: &str) -> String {
     if seg.starts_with("http://") || seg.starts_with("https://") || seg.starts_with("data:") {
         return seg.to_string();
     }
-    let Some((scheme, rest)) = base.split_once("://") else {
-        return seg.to_string();
-    };
-    let (host, path) = match rest.split_once('/') {
-        Some((h, p)) => (h.to_string(), p.to_string()),
-        None => (rest.to_string(), String::new()),
-    };
-    let dir = match path.rfind('/') {
-        Some(i) => path[..=i].to_string(),
-        None => "/".to_string(),
-    };
-    if seg.starts_with('/') {
-        format!("{scheme}://{host}{seg}")
-    } else {
-        format!("{scheme}://{host}{dir}{seg}")
+    // real URL semantics (../, root-relative, plain relative): a manual
+    // host+dir concat dropped the leading slash on relative variant lines
+    // (`https://hosthls2/...`) — use the url crate's join
+    match reqwest::Url::parse(base).and_then(|b| b.join(seg)) {
+        Ok(u) => u.to_string(),
+        Err(_) => seg.to_string(),
     }
 }
 
@@ -978,5 +969,43 @@ impl Plan {
             items: self.items.clone(),
             variant: self.variant.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_url;
+
+    #[test]
+    fn join_url_relative_variant_keeps_slash() {
+        // regression: acek-cdn master variant `index-f3-v1-a1.m3u8?...` was
+        // joined as `https://hosthls2/...` (missing slash after the host)
+        let base = "https://m5q.acek-cdn.com/hls2/01/08409/v_,l,n,h,.urlset/master.m3u8?t=x&s=1";
+        assert_eq!(
+            join_url(base, "index-f3-v1-a1.m3u8?t=y&s=1"),
+            "https://m5q.acek-cdn.com/hls2/01/08409/v_,l,n,h,.urlset/index-f3-v1-a1.m3u8?t=y&s=1"
+        );
+    }
+
+    #[test]
+    fn join_url_kinds() {
+        let base = "https://cdn.example.com/hls2/01/v/master.m3u8?t=1";
+        assert_eq!(
+            join_url(base, "/root/x.ts"),
+            "https://cdn.example.com/root/x.ts"
+        );
+        assert_eq!(
+            join_url(base, "seg1.ts"),
+            "https://cdn.example.com/hls2/01/v/seg1.ts"
+        );
+        assert_eq!(
+            join_url(base, "../v2/x.ts"),
+            "https://cdn.example.com/hls2/01/v2/x.ts"
+        );
+        assert_eq!(
+            join_url(base, "https://other.net/a.ts"),
+            "https://other.net/a.ts"
+        );
+        assert_eq!(join_url(base, "data:text/plain,hi"), "data:text/plain,hi");
     }
 }
