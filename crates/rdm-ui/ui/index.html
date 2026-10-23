@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>RDM</title>
+<title>Rust Download Manager</title>
 <style>
   :root {
     color-scheme: light;
@@ -50,6 +50,24 @@
   }
   input, select { user-select: text; }
   button { font: inherit; }
+
+  /* ---- custom titlebar (undecorated main window) ---- */
+  #titlebar {
+    display: flex; align-items: center; gap: 2px; height: 34px;
+    padding: 0 6px 0 12px; flex: none;
+    background: var(--chrome); border-bottom: 1px solid var(--line);
+  }
+  #titlebar .tb-title { font-size: 11.5px; font-weight: 650; letter-spacing: .02em; color: var(--txt2); }
+  #titlebar .tb-grow { flex: 1; }
+  .tb-btn {
+    width: 30px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+    border: none; border-radius: 7px; background: transparent; color: var(--dim);
+    transition: background-color .12s ease, color .12s ease, transform .08s ease;
+  }
+  .tb-btn:hover { background: var(--chrome-lo); color: var(--txt); }
+  .tb-btn:active { background: var(--chrome-act); transform: scale(.94); }
+  .tb-btn.cls:hover { background: #d9534f; color: #fff; }
+  .tb-btn svg { width: 12px; height: 12px; }
 
   /* ---- toolbar ---- */
   #toolbar {
@@ -233,6 +251,7 @@
   .dv-btn-copy:active { transform: scale(.95); }
 
   /* ---- compact detail window (background offers) ---- */
+  html[data-mode="detail"] #titlebar,
   html[data-mode="detail"] #toolbar,
   html[data-mode="detail"] #main,
   html[data-mode="detail"] #status,
@@ -517,6 +536,20 @@
 </head>
 <body>
 
+<div id="titlebar" data-tauri-drag-region>
+  <span class="tb-title">Rust Download Manager</span>
+  <div class="tb-grow" data-tauri-drag-region></div>
+  <button type="button" class="tb-btn" id="w-min" aria-label="Minimize">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+  </button>
+  <button type="button" class="tb-btn" id="w-max" aria-label="Maximize">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+  </button>
+  <button type="button" class="tb-btn cls" id="w-close" aria-label="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+</div>
+
 <div id="toolbar" role="toolbar" aria-label="RDM">
   <button type="button" class="tbtn" id="b-add" data-i18n-title="add_url">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9m-4.5-4.5L12 12l4.5-4.5"/><path d="M4 16v2.2c0 .7.6 1.3 1.3 1.3h13.4c.7 0 1.3-.6 1.3-1.3V16"/></svg>
@@ -620,6 +653,27 @@ async function focusWindow() {
     setTimeout(() => { w.setAlwaysOnTop(false).catch(() => {}); }, 400);
   } catch (e) { diag("focus: " + (e.message || e)); }
 }
+
+/* ---------- custom titlebar (undecorated window) ---------- */
+(() => {
+  const win = () => {
+    try { return window.__TAURI__.window.getCurrentWindow(); } catch { return null; }
+  };
+  const guard = (p) => { if (p && p.catch) p.catch(() => {}); };
+  const min = document.getElementById("w-min");
+  const max = document.getElementById("w-max");
+  const cls = document.getElementById("w-close");
+  if (min) min.onclick = () => { const w = win(); if (w) guard(w.minimize()); };
+  if (max) max.onclick = () => { const w = win(); if (w) guard(w.toggleMaximize()); };
+  // close rides the CloseRequested handler: hides to tray instead of exiting
+  if (cls) cls.onclick = () => { const w = win(); if (w) guard(w.close()); };
+  const tb = document.getElementById("titlebar");
+  if (tb) tb.addEventListener("dblclick", (e) => {
+    // only the bare bar itself, never the buttons
+    if (e.target.closest(".tb-btn")) return;
+    const w = win(); if (w) guard(w.toggleMaximize());
+  });
+})();
 
 /* ---------- i18n ---------- */
 const I18N = {
