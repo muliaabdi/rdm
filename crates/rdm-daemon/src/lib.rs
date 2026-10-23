@@ -324,6 +324,16 @@ fn speed_limit_bytes() -> Option<u64> {
     }
 }
 
+/// Active DoH resolver from settings. Defaults to Cloudflare (1.1.1.1) to avoid
+/// ISP poisoning (NXDOMAIN) on common stream/embed hosts.
+pub fn dns_resolver_from_settings() -> Option<std::sync::Arc<rdm_core::DohResolver>> {
+    let s = settings_json();
+    let mode = s.get("dns_mode").and_then(|v| v.as_str()).unwrap_or("cloudflare");
+    let custom = s.get("dns_custom").and_then(|v| v.as_str());
+    let cfg = rdm_core::DnsConfig::from_settings(mode, custom);
+    cfg.endpoint().map(|ep| std::sync::Arc::new(rdm_core::DohResolver::new(ep)))
+}
+
 fn expand_path(p: &str) -> PathBuf {
     let p = p.trim();
     let home = || {
@@ -978,7 +988,10 @@ fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
         &offer.url,
         Some(dir.clone()),
         offer.segments.unwrap_or(8),
-        Limits::default(),
+        Limits {
+            dns_resolver: dns_resolver_from_settings(),
+            ..Limits::default()
+        },
     );
     // HLS playlists are saved as the transport stream they carry
     if job
@@ -1354,6 +1367,7 @@ fn job_for(
         segments,
         Limits {
             limiter: Some(limiter),
+            dns_resolver: dns_resolver_from_settings(),
             ..Limits::default()
         },
     );

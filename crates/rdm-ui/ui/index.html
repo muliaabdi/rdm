@@ -23,20 +23,20 @@
   }
   [data-theme="dark"] {
     color-scheme: dark;
-    --bg: #1c1e23; --chrome: #22252b; --chrome-hi: #262a31; --chrome-lo: #2a2e36; --chrome-act: #333842;
-    --line: #2e323a; --line2: #3a3f4a; --line-hov: #4a505c;
-    --txt: #d8dce2; --dim: #9aa0a8; --txt2: #b7bdc5; --dim2: #7c828b;
+    --bg: #1a1c20; --chrome: #202329; --chrome-hi: #252931; --chrome-lo: #282d36; --chrome-act: #313742;
+    --line: #2b3039; --line2: #373d4a; --line-hov: #485060;
+    --txt: #e2e6eb; --dim: #9aa2b0; --txt2: #c5cbd4; --dim2: #848c99;
     --accent: #4f8ddb; --sel: #3f6fb8; --sel-bg: #24344b; --sel-edge: #2f5aa8;
-    --green: #53b356; --green-hi: #6ec271;
-    --amber: #d9a441; --red: #e0685c; --fill-fail: #d9534f; --fill-pause: #d99a2b;
-    --track: #2a2d33; --track2: #2f323a;
-    --panel: #202329; --panel-hi: #24282f; --hover: #262b33; --rowline: #26292f;
+    --green: #48bb52; --green-hi: #62cf6c;
+    --amber: #e5a43b; --red: #e66255; --fill-fail: #d9534f; --fill-pause: #d99a2b;
+    --track: #262930; --track2: #2c3038;
+    --panel: #1e2127; --panel-hi: #22262d; --hover: #262b34; --rowline: #242830;
     --cat-sel: #24344b; --cat-sel-txt: #9cc2f0; --cat-sel-cnt: #6f92c4;
-    --done: #58c05c; --sel-dim: #a3abbb;
-    --input-bg: #1a1d22; --btn-bg: #2a2e36; --btn-hi: #31353f; --btn-act: #3a3f4a;
-    --menu-bg: #262a31; --menu-hov: #2c3a52;
-    --sb: #3d424c; --sb-hi: #4a505c; --sb-edge: #202329;
-    --focus: #5f8fd9;
+    --done: #48bb52; --sel-dim: #b0b8c6;
+    --input-bg: #181a1f; --btn-bg: #262a32; --btn-hi: #2e333d; --btn-act: #363c48;
+    --menu-bg: #22262d; --menu-hov: #29354a;
+    --sb: #3a404c; --sb-hi: #474f5e; --sb-edge: #1e2127;
+    --focus: #6097e6;
   }
   * { box-sizing: border-box; user-select: none; }
   html, body { height: 100%; }
@@ -61,19 +61,19 @@
     display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px;
     border: 1px solid transparent; border-radius: 8px;
     background: transparent; color: var(--txt2); cursor: default;
-    transition: background-color .12s ease, color .12s ease, border-color .12s ease;
+    transition: background-color .15s cubic-bezier(.16,1,.3,1), color .15s cubic-bezier(.16,1,.3,1), border-color .15s cubic-bezier(.16,1,.3,1), transform .08s ease;
   }
   .tbtn:hover { background: var(--chrome-lo); color: var(--txt); }
-  .tbtn:active { background: var(--chrome-act); }
+  .tbtn:active { background: var(--chrome-act); transform: scale(.97); }
   .tbtn[disabled] { opacity: .38; pointer-events: none; }
   .tbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-  .tbtn svg { width: 16px; height: 16px; flex: none; color: var(--dim); transition: color .12s ease; }
+  .tbtn svg { width: 16px; height: 16px; flex: none; color: var(--dim); transition: color .15s ease; }
   .tbtn:hover svg { color: var(--txt2); }
   .tbtn span { font-size: 11.5px; }
   /* one filled control: the primary action owns the accent */
-  #b-add { background: var(--accent); color: #fff; }
+  #b-add { background: var(--accent); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
   #b-add:hover { background: #275f9f; color: #fff; }
-  #b-add:active { background: #22548d; }
+  #b-add:active { background: #22548d; transform: scale(.97); }
   #b-add svg, #b-add:hover svg { color: #fff; }
   .tsep { width: 1px; height: 18px; margin: 0 6px; flex: none; background: var(--line2); }
   #spacer { flex: 1; }
@@ -161,7 +161,16 @@
   }
   .cellbar > .fill {
     position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
-    transition: width .5s linear, background-color .2s;
+    transition: width .4s cubic-bezier(.16,1,.3,1), background-color .2s;
+  }
+  .cellbar.pulse > .fill::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.22) 50%, transparent 100%);
+    animation: barShimmer 1.8s infinite linear;
+  }
+  @keyframes barShimmer {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
   }
   .pct { width: 32px; flex: none; text-align: right; font-size: 10.5px;
     color: var(--dim); font-variant-numeric: tabular-nums; }
@@ -198,7 +207,12 @@
   .dv-sub .dot { opacity: .5; }
   .dv-track { position: relative; height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; }
   .dv-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
-    transition: width .4s linear, background-color .2s; }
+    transition: width .4s cubic-bezier(.16,1,.3,1), background-color .2s; }
+  .dv-fill.pulse::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.28) 50%, transparent 100%);
+    animation: barShimmer 1.8s infinite linear;
+  }
   .dv-meta-line { display: flex; justify-content: space-between; margin-top: 5px;
     font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
   .dv-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -208,8 +222,15 @@
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .dv-stat small { font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
   .dv-path { display: flex; gap: 7px; align-items: center; font-size: 11px; color: var(--dim); }
-  .dv-path span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
+  .dv-path span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; flex: 1; }
   .dv-path svg { width: 13px; height: 13px; flex: none; opacity: .7; }
+  .dv-btn-copy {
+    border: none; background: transparent; padding: 2px 6px; border-radius: 5px;
+    font-size: 10px; color: var(--accent); cursor: default;
+    transition: background-color .12s, transform .08s;
+  }
+  .dv-btn-copy:hover { background: var(--hover); }
+  .dv-btn-copy:active { transform: scale(.95); }
 
   /* ---- compact detail window (background offers) ---- */
   html[data-mode="detail"] #toolbar,
@@ -239,10 +260,11 @@
     border-radius: 9px; background: var(--btn-bg); color: var(--txt);
     transition: background-color .12s ease, border-color .12s ease; }
   .dc-actions button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
-  .dc-actions button:active { background: var(--btn-act); }
+  .dc-actions button:active { background: var(--btn-act); transform: scale(.97); }
   .dc-actions button:disabled { opacity: .45; pointer-events: none; }
-  .dc-actions button.pri { border-color: transparent; color: #fff; background: #3569b8; }
+  .dc-actions button.pri { border-color: transparent; color: #fff; background: #3569b8; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
   .dc-actions button.pri:hover { background: #3d74c6; }
+  .dc-actions button.pri:active { background: #2e5da3; transform: scale(.97); }
   .dc-err { display: none; color: var(--red); font-size: 11px; user-select: text;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .dc-err.on { display: block; }
@@ -260,9 +282,10 @@
 
   /* ---- modal ---- */
   #modal {
-    position: fixed; inset: 0; background: rgba(30,28,22,.30);
+    position: fixed; inset: 0; background: rgba(14,16,20,.45);
+    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
     display: flex; align-items: center; justify-content: center;
-    opacity: 0; visibility: hidden; transition: opacity .14s ease, visibility .14s;
+    opacity: 0; visibility: hidden; transition: opacity .18s cubic-bezier(.16,1,.3,1), visibility .18s;
   }
   #modal.open { opacity: 1; visibility: visible; }
   #dlg {
@@ -270,10 +293,10 @@
     max-height: calc(100vh - 40px);
     display: flex; flex-direction: column;
     background: var(--panel-hi); border: 1px solid var(--line2); border-radius: 12px;
-    box-shadow: 0 14px 44px rgba(24,22,14,.22);
-    padding: 16px 18px; transform: translateY(8px) scale(.98); transition: transform .14s ease;
+    box-shadow: 0 18px 48px rgba(0,0,0,.35), 0 4px 12px rgba(0,0,0,.15);
+    padding: 16px 18px; transform: scale(.95) translateY(6px); transition: transform .22s cubic-bezier(.16,1,.3,1);
   }
-  #modal.open #dlg { transform: none; }
+  #modal.open #dlg { transform: scale(1) translateY(0); }
   #dlg h3 { margin: 0 0 12px; font-size: 13px; flex: none; }
   /* tall dialogs scroll their fields; the action row stays pinned */
   #dlg .dlgbody { overflow-y: auto; min-height: 0; flex: 1; margin: 0 -6px; padding: 0 6px; }
@@ -296,11 +319,11 @@
     transition: background-color .12s ease, border-color .12s ease;
   }
   #dlg button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
-  #dlg button:active { background: var(--btn-act); }
+  #dlg button:active { background: var(--btn-act); transform: scale(.97); }
   #dlg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-  #dlg button.pri { border-color: transparent; color: #fff; background: #3569b8; }
+  #dlg button.pri { border-color: transparent; color: #fff; background: #3569b8; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
   #dlg button.pri:hover { background: #3d74c6; }
-  #dlg button.pri:active { background: #2e5da3; }
+  #dlg button.pri:active { background: #2e5da3; transform: scale(.97); }
   .mhint { font-size: 11px; color: var(--dim); margin: -4px 0 11px; min-height: 14px; }
   #dlg .btns { padding-top: 12px; flex: none; }
   #dlg.hasbody .btns { border-top: 1px solid var(--line); margin-top: 10px; }
@@ -611,6 +634,10 @@ const I18N = {
     ft_empty_all: "No types selected — intercepting all files",
     ph_intercept: "custom, e.g. bin dat",
     fld_autostart: "Start with system",
+    fld_dns: "DNS resolver", opt_dns_sys: "System default",
+    opt_dns_cf: "Cloudflare DoH (1.1.1.1) [Bypass ISP]",
+    opt_dns_gg: "Google DoH (8.8.8.8)", opt_dns_custom: "Custom DoH URL",
+    ph_dns_custom: "https://your-doh-server/dns-query",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
     col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
   },
@@ -668,6 +695,10 @@ const I18N = {
     ft_empty_all: "Tidak ada jenis dipilih — semua berkas diintersep",
     ph_intercept: "tambahan, mis. bin dat",
     fld_autostart: "Mulai saat login",
+    fld_dns: "Resolver DNS", opt_dns_sys: "Sistem (Bawaan)",
+    opt_dns_cf: "Cloudflare DoH (1.1.1.1) [Bypass Blokir ISP]",
+    opt_dns_gg: "Google DoH (8.8.8.8)", opt_dns_custom: "Kustom DoH URL",
+    ph_dns_custom: "https://server-doh-anda/dns-query",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
     col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
   },
@@ -849,9 +880,19 @@ function renderCats() {
   document.querySelectorAll(".cat").forEach((el) =>
     (el.onclick = () => { cat = el.dataset.cat; renderCats(); renderRows(); }));
 }
+function estSize(j) {
+  if (j.size) return j.size;
+  if (j.segs && j.segs.length && j.done > 0) {
+    const done = j.segs.filter((s) => s.done > 0).length;
+    if (done > 0) return Math.round((j.done / done) * j.segs.length);
+  }
+  return null;
+}
 function etaOf(j) {
-  if (j.status !== "running" || !j.size || !j.speed) return null;
-  return (j.size - j.done) / j.speed;
+  if (j.status !== "running" || !j.speed) return null;
+  const sz = estSize(j);
+  if (!sz || sz <= j.done) return null;
+  return (sz - j.done) / j.speed;
 }
 function selectRow(id) {
   selected = id;
@@ -863,7 +904,8 @@ function selectRow(id) {
   updateToolbar();
 }
 function rowHtml(j) {
-  const pct = j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
+  const pct = pctOf(j);
+  const sz = estSize(j);
   const fillColor = j.status === "failed" ? "#d9534f"
     : j.status === "paused" ? "#d99a2b"
     : j.status === "confirming" ? "transparent"
@@ -873,8 +915,8 @@ function rowHtml(j) {
   const tip = esc(j.filename + (j.error ? ` — ${j.error}` : ""));
   return `<div class="row ${selected === j.id ? "sel" : ""}" role="option" aria-selected="${selected === j.id}" tabindex="0" data-id="${j.id}">
     <div class="name" title="${tip}">${icoFor(j)}<span class="nm">${esc(j.filename)}</span></div>
-    <div class="num dim sz">${j.size ? fmt(j.size) : "?"}</div>
-    <div class="pcol"><div class="cellbar"><div class="fill" style="width:${w}%;background:${fillColor}"></div></div><span class="pct">${w.toFixed(0)}%</span></div>
+    <div class="num dim sz">${sz ? (j.size ? fmt(j.size) : "~" + fmt(sz)) : "?"}</div>
+    <div class="pcol"><div class="cellbar ${j.status === "running" ? "pulse" : ""}"><div class="fill" style="width:${w}%;background:${fillColor}"></div></div><span class="pct">${w.toFixed(0)}%</span></div>
     <div class="st ${j.status}${j.missing ? " missing" : ""}">${statusLabel(j)}</div>
     <div class="num dim eta">${j.status === "running" ? fmtEta(etaOf(j)) : "—"}</div>
     <div class="num spd">${j.status === "running" ? fmtSpeed(j.speed) : "—"}</div>
@@ -1123,7 +1165,12 @@ function icoOf(j) {
   return { col, ch: (m ? m[1] : c).slice(0, 4).toUpperCase() };
 }
 function pctOf(j) {
-  return j.size ? Math.min(100, (j.done / j.size) * 100) : 0;
+  if (j.size) return Math.min(100, (j.done / j.size) * 100);
+  if (j.segs && j.segs.length) {
+    const done = j.segs.filter((s) => s.done > 0).length;
+    return Math.min(100, (done / j.segs.length) * 100);
+  }
+  return 0;
 }
 function fillColor(j) {
   return j.segs && j.status === "running" ? segGradient(j.segs, j.size)
@@ -1253,12 +1300,12 @@ function paintGraph(cv, samples) {
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   ctx.clearRect(0, 0, w, h);
   const C = document.documentElement.dataset.theme === "dark"
-    ? { grid: "#2e323a", grid2: "#3a3f4a", line: "#53b356", txt: "#9aa0a8" }
-    : { grid: "#e7e4d6", grid2: "#d5d2c2", line: "#2e8b30", txt: "#7a7a7a" };
+    ? { grid: "#262b33", grid2: "#323844", line: "#48bb52", txt: "#9aa2b0" }
+    : { grid: "#ebe8dc", grid2: "#dad6c6", line: "#2e8b30", txt: "#7a7a7a" };
   const vals = samples.map((s) => s.v);
   const max = Math.max(1024, ...vals) * 1.15;
   ctx.strokeStyle = C.grid;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 0.75 * dpr;
   const step = 34 * dpr;
   for (let x = step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
   for (let y = step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
@@ -1302,8 +1349,21 @@ function paintGraph(cv, samples) {
         i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy);
       });
       ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-      ctx.fillStyle = document.documentElement.dataset.theme === "dark" ? "rgba(83,179,86,.28)" : "rgba(87,184,92,.30)";
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      if (document.documentElement.dataset.theme === "dark") {
+        grad.addColorStop(0, "rgba(72,187,82,.35)");
+        grad.addColorStop(1, "rgba(72,187,82,.03)");
+      } else {
+        grad.addColorStop(0, "rgba(46,139,48,.30)");
+        grad.addColorStop(1, "rgba(46,139,48,.03)");
+      }
+      ctx.fillStyle = grad;
       ctx.fill();
+      ctx.beginPath();
+      vals.forEach((v, i) => {
+        const yy = y(v);
+        i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy);
+      });
       ctx.strokeStyle = C.line; ctx.lineWidth = 1.5 * dpr;
       ctx.lineJoin = "round";
       ctx.stroke();
@@ -1417,6 +1477,7 @@ function initDetailWindow() {
     <div class="dv-path">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5c0-.8.6-1.5 1.4-1.5H9l2 2.2h8.6c.8 0 1.4.7 1.4 1.5v8.8c0 .8-.6 1.5-1.4 1.5H4.4c-.8 0-1.4-.7-1.4-1.5z"/></svg>
       <span id="dc-file"></span>
+      <button class="dv-btn-copy" id="dc-copy-path" title="Copy file path">Copy</button>
     </div>
     <div class="dc-err" id="dc-err"></div>
     <div class="dc-actions">
@@ -1431,6 +1492,19 @@ function initDetailWindow() {
   };
   $("dc-x").onclick = closeWin;
   $("dc-close").onclick = closeWin;
+  $("dc-copy-path").onclick = () => {
+    const j = jobs.get(detailId);
+    if (j && j.out_path) {
+      navigator.clipboard.writeText(j.out_path).then(() => {
+        const btn = $("dc-copy-path");
+        if (btn) {
+          const old = btn.textContent;
+          btn.textContent = "Copied!";
+          setTimeout(() => { btn.textContent = old; }, 1500);
+        }
+      }).catch(() => {});
+    }
+  };
   $("dc-open").onclick = () => {
     const j = jobs.get(detailId);
     if (j) invoke("open_path", { path: j.out_path || "", folder: true }).catch((e) => toast(trErr(e)));
@@ -1475,11 +1549,14 @@ function renderDetailCard() {
   st.className = "st " + j.status;
   st.textContent = statusLabel(j);
   const pct = pctOf(j);
+  const sz = estSize(j);
   $("dc-fill").style.width = pct + "%";
   $("dc-fill").style.background = fillColor(j);
+  if (j.status === "running") $("dc-fill").classList.add("pulse");
+  else $("dc-fill").classList.remove("pulse");
   $("dc-pct").textContent = pct.toFixed(0) + "%";
-  $("dc-done").textContent = fmt(j.done) + (j.size ? " / " + fmt(j.size) : "");
-  $("dc-size").textContent = j.size ? fmt(j.size) : "?";
+  $("dc-done").textContent = fmt(j.done) + (sz ? " / " + (j.size ? fmt(j.size) : "~" + fmt(sz)) : "");
+  $("dc-size").textContent = sz ? (j.size ? fmt(j.size) : "~" + fmt(sz)) : "?";
   $("dc-speed").textContent = j.status === "running" ? fmtSpeed(curSpeed(j)) : "—";
   $("dc-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
   $("dc-file").textContent = j.out_path || "-";
@@ -1508,7 +1585,7 @@ setInterval(() => {
       // EMA-smoothed so the stacked bands do not strobe; the smoothed sum is
       // also what the card + graph label show, so both read the same number
       let seg = null;
-      if (j.segs && j.segs.length) {
+      if (j.size && j.segs && j.segs.length && j.segs.length <= 32) {
         const cur = j.segs.map((s) => s.done);
         const p = segPrev.get(j.id);
         const dt = p ? (now - p.t) / 1000 : 0;
@@ -1698,6 +1775,18 @@ $("b-options").onclick = async () => {
       <label class="cfld"><span>${t("fld_parallel")}</span><input id="o-par" type="number" min="1" max="16" value="${s.max_parallel || 3}"></label>
       <label class="cfld"><span>${t("fld_speed")} (KiB/s)</span><input id="o-speed" type="number" min="0" step="64" value="${s.speed_limit || 0}"></label>
     </div>
+    <div class="fld"><label>${t("fld_dns")}</label>
+      <select id="o-dns">
+        <option value="cloudflare"${(s.dns_mode || "cloudflare") === "cloudflare" ? " selected" : ""}>${t("opt_dns_cf")}</option>
+        <option value="system"${s.dns_mode === "system" ? " selected" : ""}>${t("opt_dns_sys")}</option>
+        <option value="google"${s.dns_mode === "google" ? " selected" : ""}>${t("opt_dns_gg")}</option>
+        <option value="custom"${s.dns_mode === "custom" ? " selected" : ""}>${t("opt_dns_custom")}</option>
+      </select>
+    </div>
+    <div class="fld" id="o-dns-row" style="display:${s.dns_mode === "custom" ? "flex" : "none"}">
+      <label>&nbsp;</label>
+      <input id="o-dns-custom" placeholder="${esc(t("ph_dns_custom"))}" value="${esc(s.dns_custom || "")}" spellcheck="false">
+    </div>
     <div class="sec">${t("fld_cats")}</div>
     <p class="cathint">${t("hint_cats")}</p>
     <div id="ovlist"></div>
@@ -1767,6 +1856,9 @@ $("b-options").onclick = async () => {
   renderOv();
   renderAdd();
   $("o-cancel").onclick = closeModal;
+  $("o-dns").onchange = () => {
+    $("o-dns-row").style.display = $("o-dns").value === "custom" ? "flex" : "none";
+  };
   $("ft-all").onchange = () => {
     const on = $("ft-all").checked;
     $("ft-box").classList.toggle("all", on);
@@ -1797,6 +1889,7 @@ $("b-options").onclick = async () => {
       v: { ...s, dir: $("o-dir").value.trim() || null, segments: Number($("o-seg").value) || 8,
            max_parallel: Math.min(16, Math.max(1, Number($("o-par").value) || 3)),
            speed_limit: Math.max(0, Number($("o-speed").value) || 0),
+           dns_mode: $("o-dns").value, dns_custom: $("o-dns-custom").value.trim(),
            categories: catsClean, ytdlp_update: $("o-ytdlp").checked, theme: $("o-theme").value,
            lang: next, intercept_ext: ints, autostart: auto, notify: $("o-notify").checked,
            clipboard_watch: $("o-clip").checked },

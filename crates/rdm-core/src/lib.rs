@@ -1,9 +1,11 @@
 //! RDM core: segmented download engine with resume.
 
+pub mod dns;
 pub mod engine;
 pub mod events;
 pub mod hls;
 pub mod state;
 
+pub use dns::{DnsConfig, DohResolver};
 pub use engine::{category_of, download, job_from_url, Job, Limiter, Limits};
 pub use events::Progress;

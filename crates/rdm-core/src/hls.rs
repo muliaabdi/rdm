@@ -382,11 +382,14 @@ pub async fn download(
     // that does not look like a real browser to ~3KB/s with mid-body
     // connection cuts; a plain rustls client gets 100x less bandwidth than
     // the same token fetched from the browser.
-    let client = wreq::Client::builder()
+    let mut builder = wreq::Client::builder()
         .emulation(wreq_util::Emulation::Chrome147)
         .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(10))
-        .build()?;
+        .connect_timeout(Duration::from_secs(10));
+    if let Some(ref dns) = job.limits.dns_resolver {
+        builder = builder.dns_resolver(dns.clone());
+    }
+    let client = builder.build()?;
 
     let (final_url, plan) = match resolve_media(&client, &job.headers, &job.url).await {
         Ok(r) => r,

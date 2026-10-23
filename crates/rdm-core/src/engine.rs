@@ -33,6 +33,8 @@ pub struct Limits {
     pub min_segment_size: u64,
     /// Compute sha256 on completion.
     pub sha256: bool,
+    /// Optional DNS-over-HTTPS resolver to bypass ISP poisoning.
+    pub dns_resolver: Option<Arc<crate::dns::DohResolver>>,
 }
 
 impl Default for Limits {
@@ -43,6 +45,7 @@ impl Default for Limits {
             retries: 5,
             min_segment_size: DEFAULT_MIN_SEGMENT,
             sha256: false,
+            dns_resolver: None,
         }
     }
 }
@@ -327,11 +330,32 @@ pub async fn download(
     events: mpsc::Sender<Progress>,
     kill: watch::Receiver<bool>,
 ) -> Result<()> {
+    // Fast path: if the URL clearly points to an HLS/DASH playlist (.m3u8 / .mpd),
+    // bypass the reqwest probe entirely. Strict streaming CDNs (e.g. surrit.com,
+    // dramiyos/acek) reject rustls TLS fingerprints with HTTP 403 Forbidden,
+    // while hls::download uses Chrome BoringSSL emulation (wreq).
+    let path = job.url.split(['?', '#']).next().unwrap_or(&job.url);
+    if path.ends_with(".m3u8") || path.ends_with(".mpd") {
+        let mut job = job;
+        if job
+            .out
+            .extension()
+            .map(|e| e.to_string_lossy().eq_ignore_ascii_case("m3u8"))
+            .unwrap_or(false)
+        {
+            job.out.set_extension("ts");
+        }
+        return crate::hls::download(job, events, kill, Some("application/vnd.apple.mpegurl".to_string())).await;
+    }
+
     let limits = job.limits.clone();
-    let client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(10))
-        .build()?;
+        .connect_timeout(Duration::from_secs(10));
+    if let Some(ref dns) = limits.dns_resolver {
+        builder = builder.dns_resolver(dns.clone());
+    }
+    let client = builder.build()?;
     let probe = probe(&client, &job).await?;
 
     // generic HLS: hand the job to the m3u8 path (output name x.m3u8 -> x.ts)

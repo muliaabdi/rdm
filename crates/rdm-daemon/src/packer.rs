@@ -198,10 +198,13 @@ pub async fn extract(
     ua: Option<&str>,
     cookie: Option<&str>,
 ) -> Result<Option<(String, String)>> {
-    let client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .user_agent(ua.filter(|u| !u.is_empty()).unwrap_or(BROWSER_UA))
-        .timeout(Duration::from_secs(20))
-        .build()?;
+        .timeout(Duration::from_secs(20));
+    if let Some(dns) = crate::dns_resolver_from_settings() {
+        builder = builder.dns_resolver(dns);
+    }
+    let client = builder.build()?;
     let mut req = client.get(page).header(REFERER, page);
     if let Some(c) = cookie.filter(|c| !c.is_empty()) {
         req = req.header(COOKIE, c);

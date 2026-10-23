@@ -254,10 +254,72 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   await offer(url, nameFromUrl(url), info.pageUrl || (tab && tab.url) || "");
 });
 
+// ---- universal stream sniffer (IDM-style passive capture) ----
+const tabStreams = new Map(); // tabId -> Array<{ url, type, isMaster, time }>
+
+function isStreamUrl(url) {
+  try {
+    const p = new URL(url).pathname.toLowerCase();
+    return p.includes(".m3u8") || p.includes(".mpd");
+  } catch {
+    return false;
+  }
+}
+
+function recordTabStream(tabId, url, type = "hls") {
+  if (!tabId || tabId < 0) return;
+  // strip hash fragment
+  const clean = url.split("#")[0];
+  let list = tabStreams.get(tabId);
+  if (!list) {
+    list = [];
+    tabStreams.set(tabId, list);
+  }
+  const existing = list.find((s) => s.url === clean);
+  if (existing) {
+    existing.time = Date.now();
+    return;
+  }
+  const isMaster = /master|playlist|manifest/i.test(clean);
+  const entry = { url: clean, type, isMaster, time: Date.now() };
+  if (isMaster) {
+    list.unshift(entry);
+  } else {
+    list.push(entry);
+  }
+  if (list.length > 25) list.pop();
+}
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (details.tabId <= 0) return;
+    if (isStreamUrl(details.url)) {
+      recordTabStream(details.tabId, details.url, details.url.toLowerCase().includes(".mpd") ? "dash" : "hls");
+    }
+  },
+  { urls: ["<all_urls>"], types: ["xmlhttprequest", "media", "other"] }
+);
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading" && changeInfo.url) {
+    tabStreams.delete(tabId);
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabStreams.delete(tabId);
+});
+
 // ---- runtime messages: floating button clicks ----
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg && msg.t === "fab-offer" && msg.url) {
+  if (msg && msg.t === "get-tab-stream") {
+    const tabId = sender.tab ? sender.tab.id : null;
+    const list = tabId ? tabStreams.get(tabId) : null;
+    const best = list && list.length ? list[0] : null;
+    sendResponse({ ok: !!best, stream: best, all: list || [] });
+    return false;
+  } else if (msg && msg.t === "fab-offer" && msg.url) {
     offer(msg.url, msg.name || "", sender.tab ? sender.tab.url : "").catch(console.warn);
     sendResponse({ ok: true });
   } else if (msg && msg.t === "page-offer" && msg.url) {
@@ -301,6 +363,11 @@ chrome.webRequest.onHeadersReceived.addListener(
       const ct = h["content-type"] || "";
       const cd = h["content-disposition"] || "";
       const len = parseInt(h["content-length"] || "0", 10);
+
+      // Passive capture: MIME-based HLS/DASH manifest
+      if (/application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml)/i.test(ct)) {
+        recordTabStream(details.tabId, details.url, /dash/i.test(ct) ? "dash" : "hls");
+      }
 
       const attachment = /attachment/i.test(cd);
       if (!attachment) {

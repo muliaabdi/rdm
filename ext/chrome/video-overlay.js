@@ -8,6 +8,7 @@
   let btn = null;
   let hideTimer = null;
   let current = null;
+  let currentStreamUrl = null;
   let pageModeNow = false;
   let pageUrl = null;
   let menu = null;
@@ -21,7 +22,12 @@
 
   function nameOf(url) {
     try {
-      return decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() || "");
+      const seg = decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() || "");
+      if (!seg || /^(master|index|playlist|manifest|video|stream)(\.m3u8|\.mpd|\.ts)?$/i.test(seg)) {
+        const t = (document.title || "").replace(/[/\\?%*:|"<>]/g, "").trim();
+        if (t) return t + ".ts";
+      }
+      return seg;
     } catch {
       return "";
     }
@@ -64,6 +70,7 @@
     if (btn) btn.remove();
     btn = null;
     current = null;
+    currentStreamUrl = null;
     closeMenu();
     window.removeEventListener("scroll", place, true);
     window.removeEventListener("resize", place);
@@ -274,9 +281,9 @@
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
-        const u = urlOf(current || {});
+        const u = currentStreamUrl || urlOf(current || {});
         const b = btn.shadowRoot.querySelector("#__rdm_lbl");
-        if (pageModeNow) {
+        if (pageModeNow && !currentStreamUrl) {
           // page video: open the resolution picker instead of sending blind
           if (menu) {
             closeMenu();
@@ -385,13 +392,27 @@
       return;
     }
     const url = urlOf(el);
-    if (!url) {
-      // blob:/data: MSE streams cannot be re-fetched directly; offer the page
-      // itself so the daemon can resolve it via yt-dlp (any site).
-      show(el, "", true);
+    if (url) {
+      currentStreamUrl = null;
+      show(el, url, false);
       return;
     }
-    show(el, url, false);
+    // blob:/data: MSE media: query the universal stream sniffer for any playlist
+    // captured for this tab (HLS .m3u8 or DASH .mpd)
+    try {
+      chrome.runtime.sendMessage({ t: "get-tab-stream" }, (resp) => {
+        if (chrome.runtime.lastError || !resp || !resp.ok || !resp.stream) {
+          currentStreamUrl = null;
+          show(el, "", true);
+          return;
+        }
+        currentStreamUrl = resp.stream.url;
+        show(el, currentStreamUrl, false);
+      });
+    } catch {
+      currentStreamUrl = null;
+      show(el, "", true);
+    }
   }, true);
 
   document.addEventListener("mouseleave", scheduleHide, true);
