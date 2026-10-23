@@ -8,6 +8,8 @@ description = "Segmented download engine for RDM"
 [dependencies]
 tokio = { workspace = true }
 reqwest = { workspace = true }
+wreq = { workspace = true }
+wreq-util = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

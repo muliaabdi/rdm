@@ -15,6 +15,10 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal", "process"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+# Chrome-emulating client (BoringSSL) for HLS hosts that throttle non-browser
+# TLS/HTTP2 fingerprints to a crawl (dramiyos/acek-cdn family)
+wreq = { version = "0.16", default-features = false, features = ["tokio-rt", "webpki-roots"] }
+wreq-util = "0.2"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

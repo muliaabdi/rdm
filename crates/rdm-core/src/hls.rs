@@ -269,7 +269,7 @@ struct HlsState {
 }
 
 async fn fetch_bytes(
-    client: &reqwest::Client,
+    client: &wreq::Client,
     headers: &reqwest::header::HeaderMap,
     url: &str,
 ) -> Result<Vec<u8>> {
@@ -288,7 +288,7 @@ async fn fetch_bytes(
 /// media playlist is found. Returns the media playlist URL (kept for resume
 /// state) and its parsed plan.
 async fn resolve_media(
-    client: &reqwest::Client,
+    client: &wreq::Client,
     headers: &reqwest::header::HeaderMap,
     url: &str,
 ) -> Result<(String, Plan)> {
@@ -326,7 +326,7 @@ fn norm_url(u: &str) -> String {
 
 /// Fetch an item, decrypting it first when it carries an AES-128 key.
 async fn fetch_item(
-    client: &reqwest::Client,
+    client: &wreq::Client,
     headers: &reqwest::header::HeaderMap,
     key_cache: &Mutex<HashMap<String, [u8; 16]>>,
     item: &Item,
@@ -377,7 +377,13 @@ pub async fn download(
     kill: watch::Receiver<bool>,
     _content_type: Option<String>,
 ) -> Result<()> {
-    let client = reqwest::Client::builder()
+    // Chrome-emulating TLS/HTTP2: several stream CDNs (the dramiyos /
+    // acek-cdn family behind lulustream/luluvido embeds) throttle anything
+    // that does not look like a real browser to ~3KB/s with mid-body
+    // connection cuts; a plain rustls client gets 100x less bandwidth than
+    // the same token fetched from the browser.
+    let client = wreq::Client::builder()
+        .emulation(wreq_util::Emulation::Chrome147)
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .build()?;
@@ -500,7 +506,7 @@ pub async fn download(
 
 #[allow(clippy::too_many_arguments)]
 async fn run_vod(
-    client: &reqwest::Client,
+    client: &wreq::Client,
     job: &Job,
     events: &mpsc::Sender<Progress>,
     kill: watch::Receiver<bool>,
@@ -714,7 +720,7 @@ async fn run_vod(
 
 #[allow(clippy::too_many_arguments)]
 async fn run_live(
-    client: &reqwest::Client,
+    client: &wreq::Client,
     job: &Job,
     events: &mpsc::Sender<Progress>,
     mut kill: watch::Receiver<bool>,
