@@ -507,6 +507,23 @@ struct TrayJob {
     label: String,
 }
 
+/// Previous (done, instant) per job id — basis for tray-side speed display.
+static TRAY_PREV: std::sync::Mutex<
+    Option<std::collections::HashMap<i64, (u64, std::time::Instant)>>,
+> = std::sync::Mutex::new(None);
+
+fn tray_fmt_bps(bps: f64) -> String {
+    if bps >= 1e9 {
+        format!("{:.1} GB/s", bps / 1e9)
+    } else if bps >= 1e6 {
+        format!("{:.1} MB/s", bps / 1e6)
+    } else if bps >= 1e3 {
+        format!("{:.0} KB/s", bps / 1e3)
+    } else {
+        format!("{bps:.0} B/s")
+    }
+}
+
 /// Rebuild the tray menu from a `{"t":"jobs"}` snapshot. Cheap no-op when
 /// nothing visible changed (fingerprint of id + coarse progress).
 fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
@@ -515,6 +532,13 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
     let active = ["queued", "resolving", "running", "paused"];
     let mut list: Vec<TrayJob> = Vec::new();
     let mut fp = String::new();
+
+    // per-job download speed from consecutive snapshots (2 s apart)
+    let prev = TRAY_PREV.lock().unwrap().take().unwrap_or_default();
+    let now = std::time::Instant::now();
+    let mut total_bps: f64 = 0.0;
+    let mut next = std::collections::HashMap::new();
+
     for j in jobs {
         let status = j["status"].as_str().unwrap_or("");
         if !active.contains(&status) {
@@ -522,20 +546,42 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
         }
         let id = j["id"].as_i64().unwrap_or(0);
         let name = j["filename"].as_str().unwrap_or("?");
-        let name: String = name.chars().take(42).collect();
         let done = j["done"].as_u64().unwrap_or(0);
         let size = j.get("size").and_then(|s| s.as_u64()).filter(|s| *s > 0);
-        let text = match (status, size) {
+        let running = status == "running" || status == "resolving";
+        let bps = if running {
+            prev.get(&id)
+                .and_then(|(d, t)| {
+                    let dt = now.duration_since(*t).as_secs_f64();
+                    (dt > 0.5 && done > *d).then_some((done - *d) as f64 / dt)
+                })
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        if running {
+            total_bps += bps;
+            next.insert(id, (done, now));
+        }
+        let state = match (status, size) {
             ("queued", _) => if en { "queued" } else { "antre" }.to_string(),
             ("paused", _) => if en { "paused" } else { "jeda" }.to_string(),
             ("resolving", _) => "…".into(),
             (_, Some(sz)) => format!("{}%", (done * 100 / sz).min(100)),
-            _ => format!("{:.1} MB", done as f64 / 1e6),
+            _ => tray_fmt_bps(done as f64),
         };
-        let label = format!("{name} — {text}");
-        fp.push_str(&format!("{id}:{status}:{text};"));
+        // keep the line one glance wide; speed suffix only while running
+        let cap = if bps > 0.0 { 34 } else { 42 };
+        let name: String = name.chars().take(cap).collect();
+        let label = if bps > 0.0 {
+            format!("{name} — {state} · {}", tray_fmt_bps(bps))
+        } else {
+            format!("{name} — {state}")
+        };
+        fp.push_str(&format!("{id}:{status}:{state}:{};", bps as u32));
         list.push(TrayJob { id, label });
     }
+    *TRAY_PREV.lock().unwrap() = Some(next);
     let n = list.len();
     let mut guard = TRAY_FP.lock().unwrap();
     if *guard == fp {
@@ -551,9 +597,9 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
             return;
         };
         let (m_show, m_quit, m_head) = if en {
-            ("Show", "Quit", format!("Active downloads ({n})"))
+            ("Show", "Quit", format!("Active ({n})"))
         } else {
-            ("Tampilkan", "Keluar", format!("Unduhan aktif ({n})"))
+            ("Tampilkan", "Keluar", format!("Aktif ({n})"))
         };
         let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<_>>> = Vec::new();
         if !list.is_empty() {
@@ -580,15 +626,28 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
         let show_i = MenuItem::with_id(&app, "show", m_show, true, None::<&str>).ok();
         let quit_i = MenuItem::with_id(&app, "quit", m_quit, true, None::<&str>).ok();
         // speed-limit quick toggle: writes through set-settings so the live
-        // limiter, the Settings UI and the extension all stay in sync
+        // limiter, the Settings UI and the extension all stay in sync. The
+        // submenu title carries the current value so the state is readable
+        // without opening it.
         let kb = read_settings()["speed_limit"].as_u64().unwrap_or(0);
-        let (m_lim, m_unlim) = if en {
-            ("Speed limit", "Unlimited")
-        } else {
-            ("Batas kecepatan", "Tanpa batas")
+        let cur = match kb {
+            0 => None,
+            k => Some(if k >= 1024 {
+                format!("{} MiB/s", k / 1024)
+            } else {
+                format!("{k} KiB/s")
+            }),
         };
-        let opts: [(u64, String); 5] = [
-            (0, m_unlim.to_string()),
+        let m_lim = match (en, &cur) {
+            (true, Some(c)) => format!("Speed limit: {c}"),
+            (true, None) => "Speed limit: unlimited".into(),
+            (false, Some(c)) => format!("Batas kecepatan: {c}"),
+            (false, None) => "Batas kecepatan: tanpa batas".into(),
+        };
+        let off = if en { "Unlimited" } else { "Tanpa batas" };
+        let opts: [(u64, String); 6] = [
+            (0, off.to_string()),
+            (256, "256 KiB/s".into()),
             (512, "512 KiB/s".into()),
             (1024, "1 MiB/s".into()),
             (2048, "2 MiB/s".into()),
@@ -627,7 +686,12 @@ fn update_tray_jobs(app: &tauri::AppHandle, jobs: &[serde_json::Value]) {
             let _ = tray.set_menu(Some(menu));
         }
         let tip = if n > 0 {
-            format!("RDM — {n} {}", if en { "active" } else { "aktif" })
+            let base = format!("RDM — {n} {}", if en { "active" } else { "aktif" });
+            if total_bps > 0.0 {
+                format!("{base} · {}", tray_fmt_bps(total_bps))
+            } else {
+                base
+            }
         } else {
             "RDM".into()
         };
