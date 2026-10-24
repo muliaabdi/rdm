@@ -1,42 +1,310 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<title>RDM</title>
 <style>
-  :root { color-scheme: dark; }
-  body { width: 340px; margin: 0; font: 13px/1.45 system-ui, sans-serif; background: #1e1f24; color: #e8eaed; }
-  header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #3c4043; }
-  header b { font-size: 14px; }
-  header button { background: none; border: 1px solid #5f6368; color: #e8eaed; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
-  #jobs { max-height: 380px; overflow-y: auto; }
-  .job { padding: 10px 14px; border-bottom: 1px solid #2b2d32; }
-  .row { display: flex; justify-content: space-between; gap: 8px; }
-  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pct { color: #9aa0a6; font-variant-numeric: tabular-nums; }
-  .bar { height: 4px; background: #3c4043; border-radius: 2px; margin-top: 6px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; background: #1a73e8; width: 0; transition: width .2s; }
-  .st { margin-top: 4px; font-size: 11px; color: #9aa0a6; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-  .st .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .st .btn { display: flex; gap: 4px; flex: none; }
-  .act { background: #2b2d32; border: 1px solid #5f6368; color: #e8eaed; border-radius: 5px; padding: 1px 7px; cursor: pointer; font-size: 11px; line-height: 1.5; }
-  .act:hover { background: #3c4043; }
-  .act.dim { color: #9aa0a6; }
-  .done .bar > i { background: #34a853; }
-  .failed .bar > i { background: #ea4335; }
-  .empty { padding: 24px 14px; text-align: center; color: #9aa0a6; }
-  .err { color: #ea4335; }
+  /* Utility popup: dark to match the RDM desktop app, flat surfaces, one
+     blue accent (same family as the desktop progress bars). */
+  :root {
+    color-scheme: dark;
+    --bg: #141519;
+    --surface: #1b1e24;
+    --surface2: #242833;
+    --border: #2f3440;
+    --text: #e8eaf0;
+    --muted: #a9aebc;
+    --accent: #5b9cff;
+    --ok: #4ade80;
+    --warn: #f2b544;
+    --err: #ff7a70;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    width: 360px;
+    max-height: 540px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    font: 13px/1.45 system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  button:focus-visible, .switch input:focus-visible + .track {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: 6px;
+  }
+
+  /* ---- header ---- */
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+  .brand svg { display: block; color: var(--accent); }
+  .conn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--muted);
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .conn.online .conn-dot { background: var(--ok); }
+  .conn.online { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .conn.offline .conn-dot { background: var(--err); }
+  .conn.offline { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
+
+  .switch { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11.5px; color: var(--muted); }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    width: 30px; height: 18px; border-radius: 999px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    position: relative;
+    transition: background 150ms var(--ease-out), border-color 150ms var(--ease-out);
+  }
+  .switch .track::after {
+    content: "";
+    position: absolute; top: 2px; left: 2px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--muted);
+    transition: transform 160ms var(--ease-out), background 150ms var(--ease-out);
+  }
+  .switch input:checked + .track { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
+  .switch input:checked + .track::after { transform: translateX(12px); background: var(--accent); }
+
+  /* ---- offline banner ---- */
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 12px 0;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--err) 45%, transparent);
+    background: color-mix(in srgb, var(--err) 10%, var(--surface));
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--err);
+  }
+  .banner .mini-btn { margin-left: auto; }
+
+  .mini-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+    font-size: 11.5px;
+    transition: transform 120ms var(--ease-out), background 120ms var(--ease-out);
+  }
+  .mini-btn:active { transform: scale(0.96); }
+
+  /* ---- diagnostics ---- */
+  .diag {
+    margin: 8px 12px 0;
+    padding: 8px 10px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .d-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    font-size: 12px;
+  }
+  .d-row span { color: var(--muted); }
+  .d-row b { font-weight: 500; text-align: right; }
+  .diag .mini-btn { width: 100%; margin-top: 8px; }
+  .d-ok { color: var(--ok); }
+  .d-err { color: var(--err); }
+
+  /* ---- tabs ---- */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tabs button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 8px 7px;
+    font-size: 12px;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .tabs .cnt {
+    font-size: 10.5px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--surface2);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .tabs button[aria-pressed="true"] .cnt { background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--text); }
+
+  /* ---- jobs ---- */
+  .jobs { flex: 1; overflow-y: auto; padding: 6px 8px 8px; }
+  .job {
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: var(--surface);
+    margin-bottom: 6px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .job:hover { background: var(--surface2); }
+  }
+  .j-top { display: flex; align-items: center; gap: 7px; }
+  .j-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .st-running { background: var(--accent); }
+  .st-resolving, .st-confirming, .st-queued { background: var(--muted); }
+  .st-paused { background: var(--warn); }
+  .st-completed { background: var(--ok); }
+  .st-failed { background: var(--err); }
+  .st-cancelled { background: var(--muted); }
+  .j-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .j-pct { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .j-bar {
+    height: 4px;
+    border-radius: 3px;
+    background: var(--surface2);
+    margin: 7px 0 6px;
+    overflow: hidden;
+  }
+  .j-bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width 250ms linear; }
+  .j-paused .j-bar i { background: var(--warn); }
+  .j-completed .j-bar i { background: var(--ok); }
+  .j-failed .j-bar i { background: var(--err); }
+  .j-cancelled .j-bar i { background: var(--muted); }
+  .j-meta { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+  .j-info { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .j-info .err-t { color: var(--err); }
+  .j-actions { display: flex; gap: 4px; }
+  .act {
+    width: 24px; height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    transition: transform 120ms var(--ease-out), background 120ms var(--ease-out), color 120ms var(--ease-out);
+  }
+  .act:hover { background: var(--surface); color: var(--text); }
+  .act:active { transform: scale(0.92); }
+  .act.danger:hover { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+  .act svg { display: block; }
+
+  /* ---- states ---- */
+  .state { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 12.5px; }
+  .state b { display: block; color: var(--text); font-size: 13px; margin-bottom: 4px; }
+  .spin {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    margin-bottom: 8px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- footer ---- */
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .foot kbd {
+    font: 10.5px/1 system-ui, sans-serif;
+    padding: 2px 4px;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: var(--surface);
+  }
+  .link-btn { margin-left: auto; font-size: 11px; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+  .link-btn:hover, .link-btn[aria-expanded="true"] { color: var(--text); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <b>RDM</b>
-  <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
-    <span>takeover</span>
-    <input type="checkbox" id="intercept" style="accent-color:#1a73e8" />
+<header class="top">
+  <div class="brand">
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 1.5v8m0 0L4.8 6.3M8 9.5l3.2-3.2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M2.5 11.5v1.8c0 .6.5 1.2 1.2 1.2h8.6c.6 0 1.2-.6 1.2-1.2v-1.8" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    </svg>
+    <b>RDM</b>
+  </div>
+  <div id="conn" class="conn" role="status" aria-live="polite">
+    <span class="conn-dot" aria-hidden="true"></span><span id="conn-label">Connecting</span>
+  </div>
+  <label class="switch" title="Take over browser downloads and route them to RDM">
+    <input type="checkbox" id="intercept">
+    <span class="track" aria-hidden="true"></span>
+    <span>Takeover</span>
   </label>
-  <button id="refresh">Refresh</button>
 </header>
-<div id="jobs"><div class="empty">no downloads</div></div>
+
+<div id="offline" class="banner" hidden>
+  <span>Cannot reach RDM. <span id="offline-msg"></span></span>
+  <button id="retry" class="mini-btn">Retry</button>
+</div>
+
+<section id="diag" class="diag" hidden aria-label="Connection diagnostics">
+  <div class="d-row"><span>Native host</span><b id="d-host">testing…</b></div>
+  <div class="d-row"><span>Daemon</span><b id="d-daemon">testing…</b></div>
+  <div class="d-row"><span>List round trip</span><b id="d-rtt">–</b></div>
+  <div class="d-row"><span>Takeover</span><b id="d-take">–</b></div>
+  <div class="d-row"><span>Extension</span><b id="d-ver"></b></div>
+  <button id="retest" class="mini-btn">Run test again</button>
+</section>
+
+<nav class="tabs" id="tabs" aria-label="Filter downloads">
+  <button data-f="all" aria-pressed="true">All <span class="cnt" id="c-all">0</span></button>
+  <button data-f="active" aria-pressed="false">Active <span class="cnt" id="c-active">0</span></button>
+  <button data-f="done" aria-pressed="false">Done <span class="cnt" id="c-done">0</span></button>
+  <button data-f="failed" aria-pressed="false">Failed <span class="cnt" id="c-failed">0</span></button>
+</nav>
+
+<main id="jobs" class="jobs" aria-label="Downloads"></main>
+
+<footer class="foot">
+  <span>Hold <kbd>Alt</kbd> while clicking to keep a download in the browser</span>
+  <button id="diag-toggle" class="link-btn" aria-expanded="false">Diagnostics</button>
+</footer>
 <script src="popup.js"></script>
 </body>
 </html>

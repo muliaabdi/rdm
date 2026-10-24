@@ -274,7 +274,7 @@ async fn connect_daemon() -> anyhow::Result<UnixStream> {
 /// window — the user keeps browsing.
 fn build_detail(a: &tauri::AppHandle, visible: bool) -> tauri::Result<tauri::WebviewWindow> {
     WebviewWindowBuilder::new(a, "detail", WebviewUrl::App("index.html".into()))
-        .title("RDM")
+        .title("Rust Download Manager")
         .inner_size(470.0, 400.0)
         .min_inner_size(390.0, 320.0)
         .resizable(true)
@@ -449,6 +449,18 @@ fn job_action(
     )
 }
 
+/// Live job tuning: per-job speed cap (KiB/s), queue priority, queue label.
+#[tauri::command]
+fn job_set(ctx: State<'_, Arc<Ctx>>, id: u64, v: serde_json::Value) -> Result<(), String> {
+    let mut line = json!({"t":"set-job","id":id});
+    for k in ["speed_limit", "priority", "queue"] {
+        if !v[k].is_null() {
+            line[k] = v[k].clone();
+        }
+    }
+    send_line(&ctx, line.to_string())
+}
+
 /// Desktop notification (Linux: notify-send) for finished downloads.
 #[tauri::command]
 fn notify(title: String, body: String) -> Result<(), String> {
@@ -473,12 +485,16 @@ fn notify(title: String, body: String) -> Result<(), String> {
 #[tauri::command]
 fn diag(msg: String) {
     use std::io::Write;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/opencode/ui-diag.log")
-    {
-        let _ = writeln!(f, "{msg}");
+    // /tmp/opencode can be root-owned; fall back so diagnostics never vanish
+    for path in ["/tmp/opencode/ui-diag.log", "/tmp/rdm-ui-diag.log"] {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(f, "{msg}");
+            return;
+        }
     }
 }
 
@@ -755,6 +771,7 @@ fn main() {
             get_autostart,
             set_autostart,
             job_action,
+            job_set,
             notify,
             detail_current,
             diag

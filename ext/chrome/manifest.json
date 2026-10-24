@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwmKH15KwAdnCnbwXqB3X5c4Cu4JCOzqw5G59fA2jTBIE5e+lkQ8ijwd0uAfu6C8nL4romGc7zrbtQa0IR92WOunkn46TLkEyinFxSaYAkecA0ffGM8348SAMJ50abpcGhD46qnY+S5yFiclQHc0ZbGIdvYs82lrEukdrpCNbgVoBRWY/1yIGMWBC1LEbYRq6dSJolg8OAEGvp5guaESJaKk1XgvCmUGhoiSODSC/yLPlDz0fQxMsaDfti4BpHhq6aHo7ZIiubTmhR9L/s74PeA2UnMEr0F36hY3DI1neKCgWIY1vLYVefgXAEQxcvYbRd3e4SSXcdHHBevpLiWGwaQIDAQAB",
   "name": "RDM Integration",
-  "version": "0.7.2",
-  "description": "Automatic download interception into RDM (Rust Download Manager)",
+  "version": "0.8.0",
+  "description": "Send downloads to RDM. Hold Alt while clicking to keep a download in the browser.",
   "permissions": [
     "nativeMessaging",
     "contextMenus",

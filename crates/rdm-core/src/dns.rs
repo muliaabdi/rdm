@@ -111,7 +111,8 @@ impl DohResolver {
         // 4. DoH JSON query (RFC 8427 format supported by Cloudflare, Google, AdGuard)
         if let Some(ips) = self.query_doh(host).await {
             if !ips.is_empty() {
-                let addrs: Vec<SocketAddr> = ips.iter().map(|&ip| SocketAddr::new(ip, port)).collect();
+                let addrs: Vec<SocketAddr> =
+                    ips.iter().map(|&ip| SocketAddr::new(ip, port)).collect();
                 if let Ok(mut c) = self.cache.write() {
                     c.insert(
                         host.to_string(),
@@ -163,7 +164,11 @@ impl DohResolver {
                 }
             }
         }
-        if ips.is_empty() { None } else { Some(ips) }
+        if ips.is_empty() {
+            None
+        } else {
+            Some(ips)
+        }
     }
 }
 

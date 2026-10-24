@@ -692,8 +692,23 @@ async fn run_vod(
     if fail.is_none() && write_idx >= n && !cancelled {
         std::fs::remove_file(spath).ok();
         let size = total.load(Ordering::Relaxed);
+        // post-download verification: on-disk length must match what the
+        // segment writers recorded (catches truncated writes / disk errors)
+        if let Err(e) = crate::engine::verify_size(&job.out, size).await {
+            let msg = format!("{e:#}");
+            events
+                .send(Progress::Failed { error: msg.clone() })
+                .await
+                .ok();
+            bail!("{msg}");
+        }
+        let sha = if job.limits.sha256 {
+            crate::engine::sha256_file(&job.out).await.ok()
+        } else {
+            None
+        };
         events
-            .send(Progress::Completed { size, sha256: None })
+            .send(Progress::Completed { size, sha256: sha })
             .await
             .ok();
         return Ok(());

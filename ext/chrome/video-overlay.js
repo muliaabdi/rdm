@@ -5,6 +5,22 @@
   if (window.__rdmVideoOverlay) return;
   window.__rdmVideoOverlay = true;
 
+  // Alt+Click bypass: report the Alt modifier so the background worker can
+  // skip takeover and let the browser download natively. The callback swallows
+  // "context invalidated" after the extension reloads (orphan script).
+  function altReport(down) {
+    try {
+      chrome.runtime.sendMessage({ t: "alt", down }, () => void chrome.runtime.lastError);
+    } catch {}
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Alt" && !e.repeat) altReport(true);
+  }, true);
+  window.addEventListener("keyup", (e) => {
+    if (e.key === "Alt") altReport(false);
+  }, true);
+  window.addEventListener("blur", () => altReport(false));
+
   let btn = null;
   let hideTimer = null;
   let current = null;

@@ -27,6 +27,9 @@ pub struct Limits {
     /// Shared process-wide bucket (daemon passes one so the cap covers every
     /// concurrent job); when `None` a private bucket is created per job.
     pub limiter: Option<Arc<Limiter>>,
+    /// Per-job bucket layered on top of the shared one: effective cap is the
+    /// lower of the two. Daemon-provided so it can be retuned at runtime.
+    pub job_limiter: Option<Arc<Limiter>>,
     /// Per-segment retry count before failing the job.
     pub retries: u32,
     /// Do not split files smaller than this.
@@ -42,6 +45,7 @@ impl Default for Limits {
         Self {
             max_speed: None,
             limiter: None,
+            job_limiter: None,
             retries: 5,
             min_segment_size: DEFAULT_MIN_SEGMENT,
             sha256: false,
@@ -252,15 +256,15 @@ struct Probe {
     playlist: bool,
 }
 
-async fn probe(client: &reqwest::Client, job: &Job) -> Result<Probe> {
+async fn probe(client: &reqwest::Client, job: &Job, url: &str) -> Result<Probe> {
     let req = client
-        .get(&job.url)
+        .get(url)
         .headers(job.headers.clone())
         .header(RANGE, "bytes=0-0");
     let resp = req.send().await.context("probe request failed")?;
     let status = resp.status();
     if !status.is_success() {
-        bail!("HTTP {status} for {}", job.url);
+        bail!("HTTP {status} for {url}");
     }
     let final_url = resp.url().clone();
     let etag = resp
@@ -342,7 +346,10 @@ fn pct_decode(s: &str) -> String {
 /// (its escapes are latin-1 at best; browsers still send raw UTF-8 there).
 fn cd_name(cd: &str) -> Option<String> {
     for part in cd.split(';').map(str::trim) {
-        if part.get(..10).is_some_and(|p| p.eq_ignore_ascii_case("filename*=")) {
+        if part
+            .get(..10)
+            .is_some_and(|p| p.eq_ignore_ascii_case("filename*="))
+        {
             let v = part[10..].trim();
             // UTF-8''name.pdf — skip the charset prefix when present
             let name = v.split("''").nth(1).unwrap_or(v);
@@ -353,7 +360,10 @@ fn cd_name(cd: &str) -> Option<String> {
         }
     }
     for part in cd.split(';').map(str::trim) {
-        if part.get(..9).is_some_and(|p| p.eq_ignore_ascii_case("filename=")) {
+        if part
+            .get(..9)
+            .is_some_and(|p| p.eq_ignore_ascii_case("filename="))
+        {
             let v = part[9..].trim();
             let v = v.trim_matches('"').trim();
             if !v.is_empty() && v != "\\" && v != "." && v != ".." {
@@ -443,6 +453,8 @@ enum Outcome {
 struct Shared {
     state: Mutex<JobState>,
     limiter: Arc<Limiter>,
+    /// Optional second bucket so a per-job cap stacks under the global one.
+    job_limiter: Option<Arc<Limiter>>,
     failed: Mutex<Option<String>>,
     attempts: Mutex<Vec<u32>>,
     last_detail: Mutex<Option<Instant>>,
@@ -472,7 +484,13 @@ pub async fn download(
         {
             job.out.set_extension("ts");
         }
-        return crate::hls::download(job, events, kill, Some("application/vnd.apple.mpegurl".to_string())).await;
+        return crate::hls::download(
+            job,
+            events,
+            kill,
+            Some("application/vnd.apple.mpegurl".to_string()),
+        )
+        .await;
     }
 
     let limits = job.limits.clone();
@@ -483,7 +501,31 @@ pub async fn download(
         builder = builder.dns_resolver(dns.clone());
     }
     let client = builder.build()?;
-    let probe = probe(&client, &job).await?;
+
+    // Resume fast-path: the part-state next to the output carries the last
+    // working post-redirect URL. Probing it directly skips the redirect chain
+    // (dlman-style cached CDN URL); if it is stale we fall back to the
+    // original URL, which re-follows redirects to a fresh signed link.
+    // Only readable before `better_name` runs, so it covers jobs whose name
+    // never changed - renamed jobs simply probe the original as before.
+    let cached_url = if job.fresh {
+        None
+    } else {
+        JobState::load(&state_path(&job.out))
+            .ok()
+            .flatten()
+            .and_then(|st| (!st.complete() && st.url != job.url).then_some(st.url))
+    };
+    let probe = match &cached_url {
+        Some(cu) => match probe(&client, &job, cu).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::info!("cached URL probe failed ({e:#}); retrying original");
+                probe(&client, &job, &job.url).await?
+            }
+        },
+        None => probe(&client, &job, &job.url).await?,
+    };
 
     // generic HLS: hand the job to the m3u8 path (output name x.m3u8 -> x.ts)
     if probe.playlist {
@@ -505,7 +547,10 @@ pub async fn download(
     // derived from job.out, so state and output stay a matched pair.
     let mut job = job;
     if let Some(better) = better_name(&job.out, &probe) {
-        tracing::info!("rename {} -> {better} (content-disposition/type)", job.out.display());
+        tracing::info!(
+            "rename {} -> {better} (content-disposition/type)",
+            job.out.display()
+        );
         job.out = job.out.with_file_name(better);
     }
 
@@ -607,6 +652,7 @@ pub async fn download(
             .limiter
             .clone()
             .unwrap_or_else(|| Arc::new(Limiter::new(limits.max_speed))),
+        job_limiter: limits.job_limiter.clone(),
         attempts: Mutex::new(vec![0; st.segments.len()]),
         state: Mutex::new(st.clone()),
         failed: Mutex::new(None),
@@ -700,6 +746,10 @@ async fn finish(
     if let Ok(f) = std::fs::File::open(&job.out) {
         f.sync_all().ok();
     }
+    // post-download verification: what the segments claim must match the file
+    // on disk. A mismatch means silent truncation or a disk error — fail the
+    // job instead of reporting a corrupt file as completed.
+    verify_size(&job.out, size).await?;
     std::fs::remove_file(state_path(&job.out)).ok();
     let sha = if limits.sha256 {
         sha256_file(&job.out).await.ok()
@@ -713,7 +763,8 @@ async fn finish(
     Ok(())
 }
 
-async fn sha256_file(path: &std::path::Path) -> Result<String> {
+/// Stream a file through SHA-256; used for post-download checksums.
+pub async fn sha256_file(path: &std::path::Path) -> Result<String> {
     use sha2::{Digest, Sha256};
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
@@ -723,6 +774,20 @@ async fn sha256_file(path: &std::path::Path) -> Result<String> {
         Ok(format!("{:x}", hasher.finalize()))
     })
     .await?
+}
+
+/// Post-download verification: the file on disk must carry exactly the number
+/// of bytes the segments recorded. Catches silent truncation and disk errors
+/// that would otherwise pass as a completed (corrupt) download.
+pub async fn verify_size(out: &std::path::Path, expected: u64) -> Result<()> {
+    let actual = tokio::fs::metadata(out)
+        .await
+        .map_err(|e| anyhow::anyhow!("verify: cannot stat {}: {e}", out.display()))?
+        .len();
+    if actual != expected {
+        bail!("verify: file is {actual} bytes, expected {expected}");
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -802,6 +867,9 @@ async fn segment_task(
                     None => break,
                 };
                 sh.limiter.acquire(chunk.len()).await;
+                if let Some(jl) = sh.job_limiter.as_ref() {
+                    jl.acquire(chunk.len()).await;
+                }
                 // the segment may have been shrunk by a stealing task while
                 // this request was in flight; never write past `end`
                 let (seg_start, seg_end) = {
@@ -1019,13 +1087,22 @@ mod tests {
         };
         // Gmail shape: "0" + application/pdf -> Content-Disposition wins
         let p = mk(Some("Kontrak 2026.pdf"), Some("application/pdf"));
-        assert_eq!(better_name(std::path::Path::new("/tmp/0"), &p).as_deref(), Some("Kontrak 2026.pdf"));
+        assert_eq!(
+            better_name(std::path::Path::new("/tmp/0"), &p).as_deref(),
+            Some("Kontrak 2026.pdf")
+        );
         // no CD: extension from Content-Type, noisy digit stem replaced
         let p = mk(None, Some("application/pdf"));
-        assert_eq!(better_name(std::path::Path::new("/tmp/0"), &p).as_deref(), Some("download.pdf"));
+        assert_eq!(
+            better_name(std::path::Path::new("/tmp/0"), &p).as_deref(),
+            Some("download.pdf")
+        );
         // meaningful stem keeps the stem
         let p = mk(None, Some("application/pdf"));
-        assert_eq!(better_name(std::path::Path::new("/tmp/laporan"), &p).as_deref(), Some("laporan.pdf"));
+        assert_eq!(
+            better_name(std::path::Path::new("/tmp/laporan"), &p).as_deref(),
+            Some("laporan.pdf")
+        );
         // names that already carry an extension are never touched
         let p = mk(Some("evil.exe"), Some("application/pdf"));
         assert_eq!(better_name(std::path::Path::new("/tmp/0.pdf"), &p), None);
@@ -1048,6 +1125,18 @@ mod tests {
 
     fn seg(start: u64, end: u64, done: u64) -> Segment {
         Segment { start, end, done }
+    }
+
+    #[tokio::test]
+    async fn verify_size_rejects_mismatch_and_missing_file() {
+        let d = std::env::temp_dir().join(format!("rdm-verify-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let out = d.join("v.bin");
+        std::fs::write(&out, vec![0u8; 1000]).unwrap();
+        assert!(verify_size(&out, 1000).await.is_ok());
+        let err = verify_size(&out, 4096).await.unwrap_err().to_string();
+        assert!(err.contains("verify:"), "unexpected: {err}");
+        assert!(verify_size(&d.join("gone.bin"), 1).await.is_err());
     }
 
     #[tokio::test]

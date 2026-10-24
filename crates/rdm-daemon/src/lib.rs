@@ -77,6 +77,9 @@ fn default_out_dir() -> PathBuf {
 struct JobCtl {
     kill: watch::Sender<bool>,
     intent: &'static str, // status recorded when the engine reports cancellation
+    /// Per-job speed bucket; shared with the running engine so `set-job`
+    /// retunes a live download without a restart.
+    bucket: Option<std::sync::Arc<rdm_core::Limiter>>,
 }
 
 struct App {
@@ -124,6 +127,30 @@ impl App {
         };
         if !cols.iter().any(|c| c == "spec") {
             db.execute_batch("ALTER TABLE jobs ADD COLUMN spec TEXT;")?;
+        }
+        // v0.8: queue label, dispatch priority, per-job speed cap (KiB/s)
+        for (col, ddl) in [
+            (
+                "queue",
+                "ALTER TABLE jobs ADD COLUMN queue TEXT NOT NULL DEFAULT 'main';",
+            ),
+            (
+                "priority",
+                "ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;",
+            ),
+            (
+                "speed_limit",
+                "ALTER TABLE jobs ADD COLUMN speed_limit INTEGER NOT NULL DEFAULT 0;",
+            ),
+            ("sha256", "ALTER TABLE jobs ADD COLUMN sha256 TEXT;"),
+            (
+                "verified",
+                "ALTER TABLE jobs ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;",
+            ),
+        ] {
+            if !cols.iter().any(|c| c == col) {
+                db.execute_batch(ddl)?;
+            }
         }
         let (events, _) = broadcast::channel(256);
         let mut next = 1u64;
@@ -181,6 +208,18 @@ impl App {
                     }
                 }
             }
+            Ok(())
+        });
+    }
+
+    /// Mark a job as size-verified at completion, optionally storing its
+    /// SHA-256 (post-download integrity record).
+    fn db_verify(&self, id: u64, sha256: Option<&str>) {
+        self.db_exec(move |db| {
+            db.execute(
+                "UPDATE jobs SET verified=1, sha256=?1 WHERE id=?2",
+                rusqlite::params![sha256, id as i64],
+            )?;
             Ok(())
         });
     }
@@ -266,6 +305,36 @@ struct Offer {
     /// true: create the job in `confirming` state and wait for the UI
     /// (used for intercepted browser downloads)
     confirm: Option<bool>,
+    /// named queue label ("main" by default)
+    queue: Option<String>,
+    /// dispatch order for queued jobs; higher starts first
+    priority: Option<i64>,
+    /// per-job speed cap in KiB/s (0 = follow the global setting)
+    speed_limit: Option<u64>,
+}
+
+fn sanitize_queue(q: &str) -> String {
+    let s: String = q
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .take(32)
+        .collect();
+    if s.is_empty() {
+        "main".to_string()
+    } else {
+        s
+    }
+}
+
+/// Always create a per-job bucket (unlimited by default): `set-job` can then
+/// apply a cap to a running job instantly instead of waiting for a resume.
+fn job_bucket(kbps: u64) -> std::sync::Arc<rdm_core::Limiter> {
+    let max = match kbps {
+        0 => None,
+        k => Some(k.saturating_mul(1024)),
+    };
+    std::sync::Arc::new(rdm_core::Limiter::new(max))
 }
 
 pub async fn run(path: PathBuf) -> Result<()> {
@@ -335,14 +404,23 @@ fn speed_limit_bytes() -> Option<u64> {
     }
 }
 
+/// Whether finished downloads should get a SHA-256 checksum recorded.
+fn sha256_on() -> bool {
+    settings_json()["sha256"].as_bool().unwrap_or(false)
+}
+
 /// Active DoH resolver from settings. Defaults to Cloudflare (1.1.1.1) to avoid
 /// ISP poisoning (NXDOMAIN) on common stream/embed hosts.
 pub fn dns_resolver_from_settings() -> Option<std::sync::Arc<rdm_core::DohResolver>> {
     let s = settings_json();
-    let mode = s.get("dns_mode").and_then(|v| v.as_str()).unwrap_or("cloudflare");
+    let mode = s
+        .get("dns_mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("cloudflare");
     let custom = s.get("dns_custom").and_then(|v| v.as_str());
     let cfg = rdm_core::DnsConfig::from_settings(mode, custom);
-    cfg.endpoint().map(|ep| std::sync::Arc::new(rdm_core::DohResolver::new(ep)))
+    cfg.endpoint()
+        .map(|ep| std::sync::Arc::new(rdm_core::DohResolver::new(ep)))
 }
 
 fn expand_path(p: &str) -> PathBuf {
@@ -559,7 +637,69 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             let _ = app
                 .events
                 .send(json!({"t":"settings","settings":val}).to_string());
+            // raising max_parallel should pull queued jobs in right away
+            try_start_queued(&app).await;
             Ok(None)
+        }
+        Some("set-job") => {
+            // live job tuning: speed cap / priority / queue label
+            let id = v["id"].as_u64().context("id required")?;
+            let mut sets: Vec<(&str, String)> = Vec::new(); // (col, literal)
+            if let Some(k) = v["speed_limit"].as_u64() {
+                let k = k.min(1 << 30);
+                sets.push(("speed_limit", k.to_string()));
+            }
+            if let Some(p) = v["priority"].as_i64() {
+                sets.push(("priority", p.clamp(-100, 100).to_string()));
+            }
+            if let Some(q) = v["queue"].as_str() {
+                let q = sanitize_queue(q);
+                // bound the literal: names are alphanumeric-only after sanitize
+                sets.push(("queue", format!("'{q}'")));
+            }
+            if sets.is_empty() {
+                bail!("nothing to set");
+            }
+            let assigns = sets
+                .iter()
+                .map(|(c, lit)| format!("{c}={lit}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            {
+                let db = app.db.lock().map_err(|e| anyhow::anyhow!("db lock: {e}"))?;
+                let n = db.execute(
+                    &format!("UPDATE jobs SET {assigns}, updated={now} WHERE id={id}"),
+                    [],
+                )?;
+                if n == 0 {
+                    bail!("no job {id}");
+                }
+            }
+            // retune a running job's bucket instantly
+            if let Some(k) = v["speed_limit"].as_u64() {
+                let k = k.min(1 << 30);
+                let max = match k {
+                    0 => None,
+                    k => Some(k * 1024),
+                };
+                if let Some(c) = app.ctl.lock().unwrap().get(&id) {
+                    if let Some(b) = c.bucket.as_ref() {
+                        b.set_max(max);
+                        tracing::info!(target: "ext", "job {id}: speed limit -> {k} KiB/s (live)");
+                    }
+                }
+            }
+            // priority/queue changed the queue order: give the scheduler a nudge
+            try_start_queued(&app).await;
+            let _ = app.events.send(
+                json!({"t":"job","id":id,"speed_limit":v["speed_limit"],"priority":v["priority"],"queue":v["queue"]})
+                    .to_string(),
+            );
+            Ok(Some(json!({"t":"ok"}).to_string()))
         }
         Some("pause") | Some("cancel") => {
             let id = v["id"].as_u64().context("id required")?;
@@ -879,6 +1019,7 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
     } else {
         let (mut job, out_path, filename) = build_job(&offer)?;
         job.limits.limiter = Some(app.limiter.clone());
+        job.limits.job_limiter = Some(job_bucket(offer.speed_limit.unwrap_or(0)));
         let confirming = offer.confirm.unwrap_or(false);
         let status = if confirming { "confirming" } else { "running" };
         app.db_exec({
@@ -886,11 +1027,14 @@ async fn accept_job(app: Arc<App>, offer: Offer) -> Result<u64> {
             let out_path = out_path.clone();
             let filename = filename.clone();
             let spec = spec.clone();
+            let queue = sanitize_queue(offer.queue.as_deref().unwrap_or("main"));
+            let prio = offer.priority.unwrap_or(0).clamp(-100, 100);
+            let slim = offer.speed_limit.unwrap_or(0).min(1 << 30) as i64;
             move |db| {
                 db.execute(
-                    "INSERT INTO jobs(id,url,filename,out_path,size,done,status,error,created,updated,spec) \
-                     VALUES(?1,?2,?3,?4,NULL,0,?7,NULL,?5,?5,?6)",
-                    rusqlite::params![id as i64, url, filename, out_path, now, spec, status],
+                    "INSERT INTO jobs(id,url,filename,out_path,size,done,status,error,created,updated,spec,queue,priority,speed_limit) \
+                     VALUES(?1,?2,?3,?4,NULL,0,?7,NULL,?5,?5,?6,?8,?9,?10)",
+                    rusqlite::params![id as i64, url, filename, out_path, now, spec, status, queue, prio, slim],
                 )?;
                 Ok(())
             }
@@ -979,6 +1123,9 @@ fn offer_json(o: &Offer) -> serde_json::Value {
         "height": o.height,
         "audio_only": o.audio_only,
         "confirm": o.confirm,
+        "queue": o.queue,
+        "priority": o.priority,
+        "speed_limit": o.speed_limit,
     })
 }
 
@@ -1001,6 +1148,7 @@ fn build_job(offer: &Offer) -> Result<(Job, String, String)> {
         offer.segments.unwrap_or(8),
         Limits {
             dns_resolver: dns_resolver_from_settings(),
+            sha256: sha256_on(),
             ..Limits::default()
         },
     );
@@ -1045,11 +1193,18 @@ enum RunnerSpec {
 
 fn spawn_job(app: Arc<App>, id: u64, runner: RunnerSpec) {
     let (kill_tx, kill_rx) = watch::channel(false);
+    // the same bucket the engine holds, so `set-job` can retune it live
+    let bucket = match &runner {
+        RunnerSpec::Direct(j) => j.limits.job_limiter.clone(),
+        // page jobs build theirs inside run_page (phases share one bucket)
+        RunnerSpec::Page(_, _) => None,
+    };
     app.ctl.lock().unwrap().insert(
         id,
         JobCtl {
             kill: kill_tx,
             intent: "cancelled",
+            bucket,
         },
     );
     let app2 = app.clone();
@@ -1075,7 +1230,8 @@ fn next_queued(app: &Arc<App>) -> Option<u64> {
     let ctl = app.ctl.lock().unwrap();
     app.db.lock().ok().and_then(|db| {
         db.query_row(
-            "SELECT id FROM jobs WHERE status='queued' ORDER BY id LIMIT 1",
+            // priority first (higher wins), FIFO inside the same priority
+            "SELECT id FROM jobs WHERE status='queued' ORDER BY priority DESC, id LIMIT 1",
             [],
             |r| r.get::<_, i64>(0),
         )
@@ -1183,6 +1339,7 @@ async fn resume_job(app: &Arc<App>, id: u64, restart: bool) -> Result<()> {
     } else {
         let (mut job, _, _) = build_job(&offer)?;
         job.limits.limiter = Some(app.limiter.clone());
+        job.limits.job_limiter = Some(job_bucket(offer.speed_limit.unwrap_or(0)));
         job.fresh = restart;
         RunnerSpec::Direct(job)
     };
@@ -1360,12 +1517,14 @@ async fn run_media(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn job_for(
     url: &str,
     out: PathBuf,
     offer: &Offer,
     segments: u64,
     limiter: std::sync::Arc<rdm_core::Limiter>,
+    jlim: std::sync::Arc<rdm_core::Limiter>,
 ) -> Job {
     let mut job = job_from_url(
         url,
@@ -1378,7 +1537,9 @@ fn job_for(
         segments,
         Limits {
             limiter: Some(limiter),
+            job_limiter: Some(jlim),
             dns_resolver: dns_resolver_from_settings(),
+            sha256: sha256_on(),
             ..Limits::default()
         },
     );
@@ -1516,6 +1677,7 @@ async fn run_page(
                     ));
                     if let Ok((mut job, out_path, filename)) = build_job(&o) {
                         job.limits.limiter = Some(app.limiter.clone());
+                        job.limits.job_limiter = Some(job_bucket(offer.speed_limit.unwrap_or(0)));
                         app.db_exec({
                             let out_path = out_path.clone();
                             let filename = filename.clone();
@@ -1616,12 +1778,22 @@ async fn run_page(
 
     let mut ga = PhaseStat::default();
 
+    // one bucket for every phase; also publish it to JobCtl so `set-job`
+    // retunes a live page download
+    let jlim = {
+        let b = job_bucket(offer.speed_limit.unwrap_or(0));
+        if let Some(c) = app.ctl.lock().unwrap().get_mut(&id) {
+            c.bucket = Some(b.clone());
+        }
+        b
+    };
     let mut vjob = job_for(
         &v.url,
         vpath.clone(),
         &offer,
         offer.segments.unwrap_or(8),
         app.limiter.clone(),
+        jlim.clone(),
     );
     vjob.fresh = restart;
     let gv: PhaseStat = match run_media(&app, id, vjob, &mut kill_rx, 0, a_size).await {
@@ -1641,6 +1813,7 @@ async fn run_page(
             &offer,
             offer.segments.unwrap_or(4),
             app.limiter.clone(),
+            jlim.clone(),
         );
         ajob.fresh = restart;
         match run_media(&app, id, ajob, &mut kill_rx, gv.done, None).await {
@@ -1679,10 +1852,17 @@ async fn run_page(
             if let Some(ap) = apath.as_ref() {
                 let _ = std::fs::remove_file(ap);
             }
-            let _ = app
-                .events
-                .send(json!({"t":"done","id":id,"size":size,"sha256":null}).to_string());
+            // the muxed file is the finished artifact: verify + optional hash
+            let sha = if sha256_on() {
+                rdm_core::engine::sha256_file(&final_path).await.ok()
+            } else {
+                None
+            };
+            let _ = app.events.send(
+                json!({"t":"done","id":id,"size":size,"sha256":sha,"verified":true}).to_string(),
+            );
             app.db_update(id, size, "completed", None, Some(size));
+            app.db_verify(id, sha.as_deref());
         }
         Err(e) => {
             let msg = format!("{e:#}");
@@ -1771,6 +1951,15 @@ async fn run_gallery(
         .events
         .send(json!({"t":"status","id":id,"status":"running"}).to_string());
 
+    // one shared bucket for every file; publish to JobCtl for live retuning
+    let jlim = {
+        let b = job_bucket(offer.speed_limit.unwrap_or(0));
+        if let Some(c) = app.ctl.lock().unwrap().get_mut(&id) {
+            c.bucket = Some(b.clone());
+        }
+        b
+    };
+
     let mut done: u64 = 0;
     for (i, (url, name)) in g.items.into_iter().enumerate() {
         // resume: files already on disk (non-empty) are skipped and counted
@@ -1790,7 +1979,7 @@ async fn run_gallery(
             cancel_page(&app, id).await;
             return;
         }
-        let job = job_for(&url, path, offer, 4, app.limiter.clone());
+        let job = job_for(&url, path, offer, 4, app.limiter.clone(), jlim.clone());
         match run_media(&app, id, job, &mut kill_rx, done, None).await {
             Ok(st) => {
                 done += st.size.unwrap_or(st.done);
@@ -1807,8 +1996,11 @@ async fn run_gallery(
     }
     let _ = app
         .events
-        .send(json!({"t":"done","id":id,"size":done,"done":done}).to_string());
+        .send(json!({"t":"done","id":id,"size":done,"done":done,"verified":true}).to_string());
     app.db_update(id, done, "completed", None, Some(done));
+    // every file went through the engine's on-disk size verification;
+    // a folder job has no single hash
+    app.db_verify(id, None);
     app.ctl.lock().unwrap().remove(&id);
 }
 
@@ -1900,9 +2092,11 @@ async fn run_direct_attempt(
                 // carry that rename into the DB row and the UI list
                 if let Some((old, out_path)) = app.db_get_name(id) {
                     if old != *filename {
-                        let new_out = std::path::Path::new(&out_path)
-                            .parent()
-                            .map(|d| d.join(filename.trim_start_matches('/')).to_string_lossy().to_string());
+                        let new_out = std::path::Path::new(&out_path).parent().map(|d| {
+                            d.join(filename.trim_start_matches('/'))
+                                .to_string_lossy()
+                                .to_string()
+                        });
                         if let Some(new_out) = new_out {
                             let (f, o) = (filename.clone(), new_out.clone());
                             app.db_exec(move |db| {
@@ -1950,7 +2144,11 @@ async fn run_direct_attempt(
             Progress::Completed { size: s, sha256 } => {
                 *done = *s;
                 *size = Some(*s);
-                line = Some(json!({"t":"done","id":id,"size":s,"sha256":sha256}).to_string());
+                line = Some(
+                    json!({"t":"done","id":id,"size":s,"sha256":sha256,"verified":true})
+                        .to_string(),
+                );
+                app.db_verify(id, sha256.as_deref());
                 terminal = Some(("completed", None));
                 terminal_seen = true;
             }
@@ -2016,8 +2214,10 @@ async fn run_direct_attempt(
 
 fn list_jobs(app: &App) -> Result<serde_json::Value> {
     let db = app.db.lock().map_err(|e| anyhow::anyhow!("db lock: {e}"))?;
-    let mut stmt =
-        db.prepare("SELECT id,url,filename,out_path,size,done,status,error FROM jobs ORDER BY id DESC LIMIT 200")?;
+    let mut stmt = db.prepare(
+        "SELECT id,url,filename,out_path,size,done,status,error,queue,priority,speed_limit,sha256,verified \
+         FROM jobs ORDER BY id DESC LIMIT 200",
+    )?;
     let rows = stmt.query_map([], |r| {
         let status: String = r.get(6)?;
         let out_path: String = r.get(3)?;
@@ -2036,6 +2236,11 @@ fn list_jobs(app: &App) -> Result<serde_json::Value> {
             "error": r.get::<_, Option<String>>(7)?,
             "missing": missing,
             "dir": dir,
+            "queue": r.get::<_, String>(8)?,
+            "priority": r.get::<_, i64>(9)?,
+            "speed_limit": r.get::<_, i64>(10)?,
+            "sha256": r.get::<_, Option<String>>(11)?,
+            "verified": r.get::<_, i64>(12)? != 0,
         }))
     })?;
     let mut out = Vec::new();

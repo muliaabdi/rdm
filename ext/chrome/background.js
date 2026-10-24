@@ -12,6 +12,12 @@ let gotSettings = false; // a settings frame arrived on this port
 let settingsWaiters = [];
 let fmtWaiters = []; // {res, rej} pending extract replies (formats/error)
 
+// Alt+Click bypass: holding Alt while clicking keeps the download in the
+// browser. Key state arrives from the focused frame's content script; a
+// short TTL covers a missed keyup (focus moved mid-hold, SW slept).
+let altUntil = 0;
+const altBypass = () => Date.now() < altUntil;
+
 function wakeSettings() {
   gotSettings = true;
   for (const r of settingsWaiters) r();
@@ -325,6 +331,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   } else if (msg && msg.t === "page-offer" && msg.url) {
     pageOffer(msg.url, msg.height, msg.audio).catch(console.warn);
     sendResponse({ ok: true });
+  } else if (msg && msg.t === "alt") {
+    altUntil = msg.down ? Date.now() + 1500 : 0;
+    return false;
   } else if (msg && msg.t === "page-formats" && msg.url) {
     pageFormats(msg.url)
       .then((f) => sendResponse({ ok: true, formats: (f && f.formats) || [], title: (f && f.title) || "" }))
@@ -439,6 +448,10 @@ chrome.downloads.onChanged.addListener(async (delta) => {
       return;
     }
     if (!extAllowed(name, p.url)) return; // not in the allow-list: keep it native
+    if (altBypass()) {
+      dlog(`alt-bypass (late) id=${delta.id} kept native`);
+      return;
+    }
     await freshSettings();
     if (!intercept) return;
     await chrome.downloads.cancel(delta.id).catch(() => {});
@@ -454,6 +467,10 @@ chrome.downloads.onChanged.addListener(async (delta) => {
 chrome.downloads.onCreated.addListener(async (item) => {
   try {
     if (!intercept) return;
+    if (altBypass()) {
+      dlog(`alt-bypass id=${item.id} kept native`);
+      return;
+    }
     await freshSettings(); // stale allow-list guard (SW slept, port died)
     if (item.state === "complete") return; // finished before we saw it
     const url = item.finalUrl || item.url;
