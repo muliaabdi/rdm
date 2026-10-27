@@ -307,7 +307,35 @@ async fn probe(client: &reqwest::Client, job: &Job, url: &str) -> Result<Probe> 
     let _ = resp.bytes().await;
     let content_type = headers_ct.and_then(|v| v.to_str().ok().map(str::to_string));
     let cd_filename = headers_cd.as_deref().and_then(cd_name);
-    let playlist = crate::hls::looks_like_playlist(content_type.as_deref(), final_url.as_str());
+    let mut playlist = crate::hls::looks_like_playlist(content_type.as_deref(), final_url.as_str());
+    // Streaming hosts disguise playlists as plain text (…/master.txt?s=1 with
+    // Content-Type: text/plain). One tiny ranged read settles it: HLS
+    // playlists always start with the #EXTM3U tag.
+    if !playlist {
+        let ambiguous = content_type
+            .as_deref()
+            .map(|ct| ct.to_ascii_lowercase().starts_with("text/"))
+            .unwrap_or(false)
+            || url.split('#').next().unwrap_or(url).contains(".txt")
+            || size.map(|s| s <= 1024 * 1024).unwrap_or(true);
+        if ambiguous {
+            let sniff = client
+                .get(url)
+                .headers(job.headers.clone())
+                .header(RANGE, "bytes=0-63")
+                .send()
+                .await;
+            if let Ok(r) = sniff {
+                if let Ok(b) = r.bytes().await {
+                    let head = String::from_utf8_lossy(&b);
+                    let head = head.trim_start_matches('\u{feff}').trim_start();
+                    if head.starts_with("#EXTM3U") {
+                        playlist = true;
+                    }
+                }
+            }
+        }
+    }
     Ok(Probe {
         size,
         accept_ranges,
@@ -527,15 +555,19 @@ pub async fn download(
         None => probe(&client, &job, &job.url).await?,
     };
 
-    // generic HLS: hand the job to the m3u8 path (output name x.m3u8 -> x.ts)
+    // generic HLS: hand the job to the m3u8 path (output name x.m3u8 -> x.ts);
+    // sniffed playlists often arrive as .txt / extension-less names
     if probe.playlist {
         let mut job = job;
-        if job
+        let ext_ok = job
             .out
             .extension()
-            .map(|e| e.to_string_lossy().eq_ignore_ascii_case("m3u8"))
-            .unwrap_or(false)
-        {
+            .map(|e| {
+                let e = e.to_string_lossy().to_ascii_lowercase();
+                matches!(e.as_str(), "ts" | "mp4" | "mkv" | "m4s")
+            })
+            .unwrap_or(false);
+        if !ext_ok {
             job.out.set_extension("ts");
         }
         return crate::hls::download(job, events, kill, probe.content_type).await;

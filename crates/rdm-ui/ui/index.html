@@ -123,6 +123,50 @@
   .cat .cnt { margin-left: auto; font-size: 11px; color: var(--dim2); font-variant-numeric: tabular-nums; }
   .cat.sel .cnt { color: var(--cat-sel-cnt); }
 
+  /* ---- queues ---- */
+  #qlist .cat .ic.qi { width: 9px; height: 9px; border-radius: 3px; }
+  #qlist .cat .run-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); flex: none; }
+  #qlist .cat.drop { background: var(--cat-sel); color: var(--cat-sel-txt); box-shadow: inset 0 0 0 1px var(--accent); }
+  /* scheduler position, shown only inside a queue view */
+  .row .rank { width: 15px; flex: none; text-align: center; color: var(--dim2);
+    font-size: 10px; font-variant-numeric: tabular-nums; }
+  /* queue header strip above the table when a queue is open */
+  #qhead { display: flex; align-items: center; gap: 10px; height: 38px; flex: none;
+    padding: 0 14px; background: var(--panel-hi); border-bottom: 1px solid var(--line); font-size: 11.5px; }
+  #qhead[hidden] { display: none; }
+  #qhead .qdot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  #qhead .qname { font-weight: 650; font-size: 12.5px; }
+  #qhead .qmeta { color: var(--dim); font-variant-numeric: tabular-nums; }
+  #qhead .qgrow { flex: 1; }
+  .qbtn { display: inline-flex; align-items: center; gap: 6px; height: 25px; padding: 0 10px;
+    border: 1px solid var(--line2); border-radius: 7px; background: var(--btn-bg); color: var(--txt2);
+    font-size: 11px; cursor: default;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease; }
+  .qbtn:hover { background: var(--btn-hi); border-color: var(--line-hov); color: var(--txt); }
+  .qbtn:active { background: var(--btn-act); transform: scale(.97); }
+  .qbtn[disabled] { opacity: .4; pointer-events: none; }
+  .qbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .qbtn svg { width: 11px; height: 11px; flex: none; }
+  .qbtn.go svg { color: var(--green); }
+  /* queue picker: pick an existing label or type a new one */
+  #dlg .qopts { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+  #dlg .qopt { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px;
+    border: 1px solid transparent; border-radius: 8px; background: transparent;
+    font: inherit; color: var(--txt2); text-align: left; cursor: default;
+    transition: background-color .12s ease; }
+  #dlg .qopt:hover { background: var(--hover); }
+  #dlg .qopt .ic { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  #dlg .qopt .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #dlg .qopt .cnt { font-size: 11px; color: var(--dim2); font-variant-numeric: tabular-nums; }
+  #dlg .qopt .ck { width: 14px; height: 14px; flex: none; color: var(--accent); visibility: hidden; }
+  #dlg .qopt.cur { background: var(--cat-sel); color: var(--cat-sel-txt); border-color: var(--sel-edge); }
+  #dlg .qopt.cur .cnt { color: var(--cat-sel-cnt); }
+  #dlg .qopt.cur .ck { visibility: visible; }
+  #dlg .qopt:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  #dlg .qnew { display: flex; gap: 8px; margin-bottom: 10px; }
+  #dlg .qnew input { flex: 1; min-width: 0; margin: 0; }
+  #dlg .qnew button { flex: none; padding: 6px 14px; }
+
   /* ---- table ---- */
   #listwrap { flex: 1; min-width: 0; background: var(--panel); display: flex; flex-direction: column; }
   #head, .row {
@@ -599,6 +643,11 @@
   <button type="button" class="tbtn ico" id="b-prio-dn" disabled data-i18n-title="tt_prio_dn" data-i18n-aria="tt_prio_dn">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v13M6 12l6 6 6-6"/></svg>
   </button>
+  <div class="tsep"></div>
+  <button type="button" class="tbtn" id="b-queue" disabled data-i18n-title="ctx_queue" data-i18n-aria="ctx_queue">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+    <span data-i18n="q_btn">Queue</span>
+  </button>
   <div id="spacer"></div>
   <button type="button" class="tbtn" id="b-options" data-i18n-title="settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3m0 13v3M2.5 12h3m13 0h3M5.3 5.3l2.1 2.1m9.2 9.2l2.1 2.1m0-13.4l-2.1 2.1m-9.2 9.2l-2.1 2.1"/></svg>
@@ -614,6 +663,7 @@
     <div id="qlist"></div>
   </div>
   <div id="listwrap">
+    <div id="qhead" hidden></div>
     <div id="head">
       <div data-i18n="col_name">Name</div><div class="num" data-i18n="col_size">Size</div><div data-i18n="col_progress">Progress</div>
       <div data-i18n="col_status">Status</div><div class="num" data-i18n="col_eta">Time left</div><div class="num" data-i18n="col_speed">Speed</div>
@@ -766,8 +816,13 @@ const I18N = {
     sec_behavior: "Behavior", btn_browse: "Browse",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
     col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
-    ctx_limit: "Speed limit…", ctx_priority: "Priority", ctx_queue: "Queue…",
-    sec_queues: "Queues", queue_all: "All",
+    ctx_limit: "Speed limit…", ctx_priority: "Priority", ctx_queue: "Move to queue…",
+    sec_queues: "Queues", queue_all: "All", queue_main: "Main", q_btn: "Queue",
+    q_move_title: "Move to queue", q_new_ph: "New queue name", q_move: "Move",
+    q_moved: "Moved to {q}", q_resume_all: "Resume all", q_pause_all: "Pause all",
+    q_rename: "Rename…", q_rename_title: "Rename queue",
+    q_rename_hint: "Every job in this queue gets the new name.",
+    q_to_main: "Move all to Main", q_moved_main: "{n} job(s) moved to Main",
     tt_prio_up: "Raise priority", tt_prio_dn: "Lower priority",
     ver_ok: "Verified", fld_sha256: "Record SHA-256 checksum", sha_lbl: "SHA-256",
     dlg_limit_title: "Per-job speed limit",
@@ -841,8 +896,13 @@ const I18N = {
     sec_behavior: "Perilaku", btn_browse: "Pilih",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
     col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
-    ctx_limit: "Batas kecepatan…", ctx_priority: "Prioritas", ctx_queue: "Antrean…",
-    sec_queues: "Antrean", queue_all: "Semua",
+    ctx_limit: "Batas kecepatan…", ctx_priority: "Prioritas", ctx_queue: "Pindah ke antrean…",
+    sec_queues: "Antrean", queue_all: "Semua", queue_main: "Utama", q_btn: "Antrean",
+    q_move_title: "Pindah ke antrean", q_new_ph: "Nama antrean baru", q_move: "Pindah",
+    q_moved: "Dipindah ke {q}", q_resume_all: "Lanjutkan semua", q_pause_all: "Jeda semua",
+    q_rename: "Ganti nama…", q_rename_title: "Ganti nama antrean",
+    q_rename_hint: "Semua job di antrean ini memakai nama baru.",
+    q_to_main: "Pindahkan semua ke Utama", q_moved_main: "{n} job dipindah ke Utama",
     tt_prio_up: "Naikkan prioritas", tt_prio_dn: "Turunkan prioritas",
     ver_ok: "Terverifikasi", fld_sha256: "Catat checksum SHA-256", sha_lbl: "SHA-256",
     dlg_limit_title: "Batas kecepatan per-job",
@@ -1020,6 +1080,7 @@ function sampleSpeed(id, done) {
 
 /* ---------- render ---------- */
 let queueSel = "all"; // "all" or a queue label
+let queueAssignNext = null; // queue view open when Add URL clicked: tag the next job
 function visible() {
   const rows = [...jobs.values()]
     .filter((j) => cat === "all" || catOf(j) === cat)
@@ -1028,25 +1089,51 @@ function visible() {
   return queueSel === "all" ? rows.sort((a, b) => b.id - a.id)
     : rows.sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.id - b.id);
 }
-function renderQueues() {
-  // live queue list: "All" plus every label that exists, with job counts
+function queueCounts() {
   const qs = new Map();
   for (const j of jobs.values()) {
     const q = j.queue || "main";
     qs.set(q, (qs.get(q) || 0) + 1);
   }
+  return qs;
+}
+function qRun(q) {
+  return [...jobs.values()].filter((j) => j.status === "running" && (q === "all" || (j.queue || "main") === q)).length;
+}
+// stable color per queue label so sidebar, header and picker agree
+function queueColor(q) {
+  let h = 0;
+  for (let i = 0; i < q.length; i++) h = (h * 31 + q.charCodeAt(i)) % 360;
+  return `hsl(${(h * 47 + 8) % 360},45%,52%)`;
+}
+function renderQueues() {
+  const qs = queueCounts();
   const box = $("qlist");
-  const custom = [...qs.entries()].filter(([q]) => q !== "main").sort((a, b) => a[0].localeCompare(b[0]));
-  const items = [["all", t("queue_all"), jobs.size], ...(qs.has("main") ? [["main", "main", qs.get("main")]] : []), ...custom];
+  const custom = [...qs.entries()]
+    .filter(([q]) => q !== "main")
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([q, cnt]) => [q, q, cnt]);
+  if (queueSel !== "all" && !qs.has(queueSel)) queueSel = "all";
+  const items = [["all", t("queue_all"), jobs.size], ...(qs.has("main") ? [["main", t("queue_main"), qs.get("main")]] : []), ...custom];
   $("q-sec").hidden = custom.length === 0 && !qs.has("main");
-  box.innerHTML = items.map(([id, label, cnt]) =>
-    `<div class="cat ${queueSel === id ? "sel" : ""}" data-q="${esc(id)}" role="button" tabindex="0">
-      <span class="ic qi" style="background:var(--dim)"></span>${esc(label)}
-      <span class="cnt">${cnt}</span></div>`).join("");
+  box.innerHTML = items.map(([id, label, cnt]) => {
+    const run = id !== "all" && qRun(id) > 0;
+    const col = id === "all" || id === "main" ? "var(--dim)" : queueColor(id);
+    return `<div class="cat ${queueSel === id ? "sel" : ""}" data-q="${esc(id)}" role="button" tabindex="0"
+      title="${esc(t("items_fmt", { n: cnt, m: qRun(id) }))}">
+      <span class="ic qi" style="background:${col}"></span>${esc(label)}${run ? '<span class="run-dot"></span>' : ""}
+      <span class="cnt">${cnt}</span></div>`;
+  }).join("");
   box.querySelectorAll(".cat").forEach((el) => {
     const pick = () => { queueSel = el.dataset.q; renderQueues(); renderRows(); };
     el.onclick = pick;
     el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+    el.oncontextmenu = (e) => {
+      const q = el.dataset.q;
+      if (q === "all") return;
+      e.preventDefault();
+      openQueueMenu(q, e.clientX, e.clientY);
+    };
   });
 }
 function renderCats() {
@@ -1083,7 +1170,7 @@ function selectRow(id) {
   });
   updateToolbar();
 }
-function rowHtml(j) {
+function rowHtml(j, idx) {
   const pct = pctOf(j);
   const sz = estSize(j);
   const fillColor = j.status === "failed" ? "#d9534f"
@@ -1094,7 +1181,7 @@ function rowHtml(j) {
   const w = j.status === "completed" ? 100 : pct;
   const tip = esc(j.filename + (j.error ? ` — ${j.error}` : ""));
   // queue label + priority markers: subtle chips next to the name
-  const qchip = j.queue && j.queue !== "main"
+  const qchip = j.queue && j.queue !== "main" && queueSel === "all"
     ? `<span class="qtag" title="${esc(t("dlg_queue_title") + ": " + j.queue)}">${esc(j.queue)}</span>` : "";
   const pnum = typeof j.priority === "number" ? j.priority : 0;
   const pchip = pnum > 0
@@ -1105,8 +1192,9 @@ function rowHtml(j) {
     ? `<span class="ptag lm" title="${esc(t("dlg_limit_title") + ": " + j.speed_limit + " KiB/s")}">◔</span>` : "";
   const okChip = j.status === "completed" && j.verified
     ? `<span class="ptag ok" title="${esc(t("ver_ok"))}">✓</span>` : "";
-  return `<div class="row ${selected === j.id ? "sel" : ""}" role="option" aria-selected="${selected === j.id}" tabindex="0" data-id="${j.id}">
-    <div class="name" title="${tip}">${icoFor(j)}<span class="nm">${esc(j.filename)}</span>${qchip}${pchip}${limChip}${okChip}</div>
+  const rank = queueSel !== "all" ? `<span class="rank">${idx + 1}</span>` : "";
+  return `<div class="row ${selected === j.id ? "sel" : ""}" role="option" aria-selected="${selected === j.id}" tabindex="0" data-id="${j.id}" draggable="true">
+    <div class="name" title="${tip}">${rank}${icoFor(j)}<span class="nm">${esc(j.filename)}</span>${qchip}${pchip}${limChip}${okChip}</div>
     <div class="num dim sz">${sz ? (j.size ? fmt(j.size) : "~" + fmt(sz)) : "?"}</div>
     <div class="pcol"><div class="cellbar ${j.status === "running" ? "pulse" : ""}"><div class="fill" style="width:${w}%;background:${fillColor}"></div></div><span class="pct">${w.toFixed(0)}%</span></div>
     <div class="st ${j.status}${j.missing ? " missing" : ""}">${statusLabel(j)}</div>
@@ -1116,6 +1204,7 @@ function rowHtml(j) {
 }
 function renderRows() {
   const rows = visible();
+  updateQhead();
   const box = $("rows");
   if (!rows.length) {
     box.innerHTML = `<div class="empty">
@@ -1183,6 +1272,65 @@ $("rows").addEventListener("keydown", (e) => {
   const i = items.indexOf(document.activeElement);
   const n = items[e.key === "ArrowDown" ? i + 1 : i - 1];
   if (n) { e.preventDefault(); n.focus(); }
+});
+
+/* ---------- queue header + drag a job onto a queue ---------- */
+function updateQhead() {
+  const el = $("qhead");
+  if (!el) return;
+  if (queueSel === "all") { el.hidden = true; el.dataset.sig = ""; return; }
+  const rows = [...jobs.values()].filter((j) => (j.queue || "main") === queueSel);
+  const act = rows.filter((j) => j.status === "running");
+  const resumable = rows.some((j) => ["paused", "failed", "cancelled", "queued"].includes(j.status));
+  const tot = act.reduce((a, j) => a + (j.speed || 0), 0);
+  // rebuild only when something visible changed, so hover state survives ticks
+  const sig = [queueSel, lang, rows.length, act.length, resumable ? 1 : 0, Math.round(tot / 1024)].join("|");
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.hidden = false;
+  el.innerHTML = `
+    <span class="qdot" style="background:${queueSel === "main" ? "var(--dim)" : queueColor(queueSel)}"></span>
+    <span class="qname">${esc(queueSel === "main" ? t("queue_main") : queueSel)}</span>
+    <span class="qmeta">${t("items_fmt", { n: rows.length, m: act.length })}</span>
+    <span class="qmeta">${fmtSpeed(tot)}</span>
+    <span class="qgrow"></span>
+    <button type="button" class="qbtn go" id="qh-resume"${resumable ? "" : " disabled"}>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 4.8c0-.9 1-1.5 1.8-1L19 10.2c.8.5.8 1.6 0 2.1L9.3 18.9c-.8.5-1.8-.1-1.8-1z"/></svg>
+      ${t("q_resume_all")}</button>
+    <button type="button" class="qbtn" id="qh-pause"${act.length ? "" : " disabled"}>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      ${t("q_pause_all")}</button>`;
+  $("qh-resume").onclick = () => rows.forEach((j) => {
+    if (["paused", "failed", "cancelled", "queued"].includes(j.status))
+      invoke("job_action", { action: "resume", id: j.id }).catch((e) => toast(trErr(e)));
+  });
+  $("qh-pause").onclick = () => act.forEach((j) =>
+    invoke("job_action", { action: "pause", id: j.id }).catch((e) => toast(trErr(e))));
+}
+$("rows").addEventListener("dragstart", (e) => {
+  const r = e.target.closest(".row");
+  if (!r) return;
+  e.dataTransfer.setData("text/rdm-job", r.dataset.id);
+  e.dataTransfer.effectAllowed = "move";
+});
+$("qlist").addEventListener("dragover", (e) => {
+  const q = e.target.closest(".cat[data-q]");
+  if (!q || q.dataset.q === "all") return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  q.classList.add("drop");
+});
+$("qlist").addEventListener("dragleave", (e) => {
+  const q = e.target.closest(".cat[data-q]");
+  if (q) q.classList.remove("drop");
+});
+$("qlist").addEventListener("drop", (e) => {
+  const q = e.target.closest(".cat[data-q]");
+  document.querySelectorAll("#qlist .cat.drop").forEach((el) => el.classList.remove("drop"));
+  if (!q || q.dataset.q === "all") return;
+  e.preventDefault();
+  const id = +(e.dataTransfer.getData("text/rdm-job") || e.dataTransfer.getData("text/plain"));
+  if (jobs.has(id)) { jobSet(id, { queue: q.dataset.q }); toast(t("q_moved", { q: q.dataset.q })); }
 });
 // no webview context menu anywhere; keep the native one inside text fields
 // so right-click paste still works in the URL input
@@ -1271,6 +1419,7 @@ function updateToolbar() {
   const prioOk = j && !["completed", "confirming"].includes(j.status);
   $("b-prio-up").toggleAttribute("disabled", !prioOk);
   $("b-prio-dn").toggleAttribute("disabled", !prioOk);
+  $("b-queue").toggleAttribute("disabled", !(j && j.status !== "confirming"));
   $("b-delete").toggleAttribute("disabled", !j);
 }
 function statusLabel(j) {
@@ -1475,7 +1624,7 @@ function updateDetails() {
   $("dt-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
   const pnum = typeof j.priority === "number" ? j.priority : 0;
   const plabel = pnum > 0 ? `${t("pri_high")} (+${pnum})` : pnum < 0 ? `${t("pri_low")} (${pnum})` : t("pri_normal");
-  $("dt-queue").textContent = j.queue || "main";
+  $("dt-queue").textContent = j.queue && j.queue !== "main" ? j.queue : t("queue_main");
   $("dt-prio").textContent = plabel;
   $("dt-lim").textContent = j.speed_limit > 0 ? j.speed_limit + " KiB/s" : t("lim_global");
   const shaEl = $("dt-sha");
@@ -1643,10 +1792,11 @@ listen("rdm", (ev) => {
         if (r) { selected = r.id; renderRows(); }
       }
       break;
-    case "accepted": apply({ id: m.id, status: "running", done: 0 }); selected = m.id; renderRows(); break;
+    case "accepted": apply({ id: m.id, status: "running", done: 0 }); selected = m.id; consumeQueueAssign(m.id); renderRows(); break;
     case "confirm":
       apply({ id: m.id, filename: m.filename, out_path: m.out_path, status: "confirming", done: 0 });
       selected = m.id;
+      consumeQueueAssign(m.id);
       renderRows();
       openConfirm(m);
       break;
@@ -1664,6 +1814,7 @@ listen("rdm", (ev) => {
       const patch = { id: m.id, size: m.size };
       if (m.filename) { patch.filename = m.filename; patch.out_path = m.out_path; }
       apply(patch);
+      consumeQueueAssign(m.id);
       if (m.filename) renderRows();
       break;
     }
@@ -1857,6 +2008,7 @@ function openModal(html) {
 function closeModal() {
   $("modal").classList.remove("open");
   detailsFor = null;
+  queueAssignNext = null;
   if (lastFocus && lastFocus.focus) lastFocus.focus();
   lastFocus = null;
 }
@@ -1877,6 +2029,7 @@ function isPageUrl(u) {
 }
 
 $("b-add").onclick = () => {
+  queueAssignNext = queueSel !== "all" ? queueSel : null;
   openModal(`<h3>${t("dlg_add_title")}</h3>
     <input id="m-url" placeholder="${esc(t("ph_url"))}" autofocus spellcheck="false" autocomplete="off" autocapitalize="off" />
     <div id="m-hint" class="mhint"></div>
@@ -1959,6 +2112,7 @@ $("b-delete").onclick = () => selected && confirmDelete(selected);
 $("b-restart").onclick = () => selected && invoke("job_action", { action: "restart", id: selected }).catch((e) => toast(trErr(e)));
 $("b-prio-up").onclick = () => bumpPrio(+1);
 $("b-prio-dn").onclick = () => bumpPrio(-1);
+$("b-queue").onclick = () => selected && openQueueDlg(selected);
 function bumpPrio(d) {
   const j = selected && jobs.get(selected);
   if (!j) return;
@@ -1969,6 +2123,13 @@ function bumpPrio(d) {
 /* ---------- per-job tuning: speed limit / priority / queue ---------- */
 function jobSet(id, v) {
   invoke("job_set", { id, v }).catch((e) => toast(trErr(e)));
+}
+// when Add URL runs while a queue view is open, the new job joins that queue
+function consumeQueueAssign(id) {
+  if (!queueAssignNext) return;
+  const q = queueAssignNext;
+  queueAssignNext = null;
+  jobSet(id, { queue: q });
 }
 function openLimitDlg(id) {
   const j = jobs.get(id);
@@ -2005,21 +2166,86 @@ function openPrioDlg(id) {
 }
 function openQueueDlg(id) {
   const j = jobs.get(id);
-  openModal(`<h3>${t("dlg_queue_title")}</h3>
-    <input id="m-queue" value="${esc(j && j.queue || "main")}" maxlength="32" spellcheck="false" autocomplete="off" autocapitalize="off" autofocus />
+  if (!j) return;
+  const cur = j.queue || "main";
+  const qs = queueCounts();
+  const custom = [...qs.keys()].filter((q) => q !== "main").sort((a, b) => a.localeCompare(b));
+  const row = (q, label) => `<button type="button" class="qopt${cur === q ? " cur" : ""}" data-q="${esc(q)}">
+      <span class="ic" style="background:${q === "main" ? "var(--dim)" : queueColor(q)}"></span>
+      <span class="nm">${esc(label)}</span>
+      <span class="cnt">${qs.get(q) || 0}</span>
+      <svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>
+    </button>`;
+  openModal(`<h3>${t("q_move_title")}</h3>
+    <div class="qopts">
+      ${row("main", t("queue_main"))}
+      ${custom.map((q) => row(q, q)).join("")}
+    </div>
+    <div class="qnew">
+      <input id="m-qnew" placeholder="${esc(t("q_new_ph"))}" maxlength="32" spellcheck="false" autocomplete="off" autocapitalize="off" />
+      <button id="m-qnew-ok">${t("q_move")}</button>
+    </div>
     <div class="mhint">${t("dlg_queue_hint")}</div>
+    <div class="btns"><button id="m-qclose">${t("btn_close")}</button></div>`);
+  const move = (q) => { jobSet(id, { queue: q }); toast(t("q_moved", { q })); closeModal(); };
+  $("dlg").querySelectorAll(".qopt").forEach((b) => { b.onclick = () => move(b.dataset.q); });
+  $("m-qclose").onclick = closeModal;
+  const go = () => { const q = $("m-qnew").value.trim(); if (q) move(q); };
+  $("m-qnew-ok").onclick = go;
+  $("m-qnew").addEventListener("keydown", (e) => e.key === "Enter" && go());
+}
+function openQueueMenu(q, x, y) {
+  const rows = [...jobs.values()].filter((j) => (j.queue || "main") === q);
+  const running = rows.filter((j) => j.status === "running");
+  const resumable = rows.filter((j) => ["paused", "failed", "cancelled", "queued"].includes(j.status));
+  const items = [
+    { ic: "resume", label: t("q_resume_all"), en: resumable.length > 0,
+      fn: () => resumable.forEach((j) => invoke("job_action", { action: "resume", id: j.id }).catch((e) => toast(trErr(e)))) },
+    { ic: "stop", label: t("q_pause_all"), en: running.length > 0,
+      fn: () => running.forEach((j) => invoke("job_action", { action: "pause", id: j.id }).catch((e) => toast(trErr(e)))) },
+    "sep",
+    { ic: "flag", label: t("q_rename"), en: true, fn: () => openRenameQueue(q) },
+    { ic: "layers", label: t("q_to_main"), en: q !== "main",
+      fn: () => {
+        rows.forEach((j) => jobSet(j.id, { queue: "main" }));
+        toast(t("q_moved_main", { n: rows.length }));
+      } },
+  ];
+  $("ctx").innerHTML = items.map((it) => it === "sep"
+    ? '<div class="sep"></div>'
+    : `<button type="button" role="menuitem" ${it.en ? "" : "disabled"}>${CTX_ICONS[it.ic]}<span>${esc(it.label)}</span></button>`
+  ).join("");
+  const btns = [...$("ctx").querySelectorAll("button")];
+  btns.forEach((b, k) => {
+    const it = items.filter((x2) => x2 !== "sep")[k];
+    b.onclick = () => { closeCtx(); it.fn(); };
+  });
+  $("ctx").classList.add("open");
+  const r = $("ctx").getBoundingClientRect();
+  $("ctx").style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 6)) + "px";
+  $("ctx").style.top = Math.max(4, Math.min(y, window.innerHeight - r.height - 6)) + "px";
+  const first = btns.find((b) => !b.disabled);
+  if (first) first.focus();
+}
+function openRenameQueue(q) {
+  openModal(`<h3>${t("q_rename_title")}</h3>
+    <input id="m-qren" value="${esc(q)}" maxlength="32" spellcheck="false" autocomplete="off" autocapitalize="off" autofocus />
+    <div class="mhint">${t("q_rename_hint")}</div>
     <div class="btns">
-      <button id="m-qcancel2">${t("btn_cancel")}</button>
-      <button id="m-qok" class="pri">${t("btn_save")}</button>
+      <button id="m-qrcancel">${t("btn_cancel")}</button>
+      <button id="m-qrok" class="pri">${t("btn_save")}</button>
     </div>`);
-  $("m-qcancel2").onclick = closeModal;
+  $("m-qrcancel").onclick = closeModal;
   const go = () => {
-    const q = $("m-queue").value.trim() || "main";
-    jobSet(id, { queue: q });
+    const nv = $("m-qren").value.trim();
     closeModal();
+    if (!nv || nv === q) return;
+    [...jobs.values()].filter((j) => (j.queue || "main") === q).forEach((j) => jobSet(j.id, { queue: nv }));
+    queueSel = nv;
   };
-  $("m-qok").onclick = go;
-  $("m-queue").addEventListener("keydown", (e) => e.key === "Enter" && go());
+  $("m-qrok").onclick = go;
+  $("m-qren").addEventListener("keydown", (e) => e.key === "Enter" && go());
+  setTimeout(() => { const i = $("m-qren"); if (i) { i.focus(); i.select(); } }, 60);
 }
 
 // Details opens by double-click, Enter or the row context menu

@@ -284,6 +284,93 @@ async fn fetch_bytes(
     }
 }
 
+/// TLS-fingerprint WAFs sometimes serve HTTP 200 with a plain-text error page
+/// ("security error", ...) to one client stack while another sails through.
+/// `valid` decides whether the payload is what the caller expected; when the
+/// primary (Chrome-emulating wreq) client gets garbage, one retry through a
+/// plain rustls reqwest client resolves it before the job fails.
+async fn fetch_valid(
+    client: &wreq::Client,
+    headers: &reqwest::header::HeaderMap,
+    url: &str,
+    valid: impl Fn(&[u8]) -> bool,
+) -> Result<Vec<u8>> {
+    let prim = fetch_bytes(client, headers, url).await;
+    if let Ok(b) = &prim {
+        if valid(b) {
+            return Ok(b.clone());
+        }
+    }
+    static FALLBACK: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    let fb = FALLBACK.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("reqwest fallback client")
+    });
+    let r = fb.get(url).headers(headers.clone()).send().await;
+    let msg = match r {
+        Ok(r) if r.status().is_success() => match r.bytes().await {
+            Ok(b) if valid(&b) => return Ok(b.to_vec()),
+            Ok(b) => {
+                format!("{} for {url}", error_page_hint(&b))
+            }
+            Err(e) => format!("read body: {e}"),
+        },
+        Ok(r) => format!("HTTP {} for {url} (fallback)", r.status()),
+        Err(e) => format!("{e} (fallback)"),
+    };
+    match prim {
+        // primary transport error (not a WAF page): report that, it is the
+        // environment the CDN is actually rejecting
+        Err(e) => Err(e.context(msg)),
+        Ok(b) => bail!("{msg} (got {} B)", b.len()),
+    }
+}
+
+/// Short human hint from a small text payload that is not what we asked for.
+fn error_page_hint(b: &[u8]) -> String {
+    let t = String::from_utf8_lossy(&b[..b.len().min(120)]);
+    let t = t.trim();
+    if t.is_empty() {
+        "unexpected empty body".into()
+    } else {
+        format!(
+            "unexpected body: {:?}",
+            t.chars().take(40).collect::<String>()
+        )
+    }
+}
+
+/// Small printable-ASCII payload that is not a playlist: a WAF/CDN error page.
+fn looks_like_error_page(b: &[u8]) -> bool {
+    b.len() < 2048
+        && !b.is_empty()
+        && b.iter()
+            .all(|&c| c == b'\n' || c == b'\r' || c == b'\t' || (0x20..0x7f).contains(&c))
+        && !b.starts_with(b"#EXTM3U")
+}
+
+/// MPEG-TS packet (0x47 sync byte) or fMP4 box header — real media payloads.
+fn looks_like_media(b: &[u8]) -> bool {
+    if b.is_empty() {
+        return false;
+    }
+    if b[0] == 0x47 {
+        return true;
+    }
+    // init segment / fMP4: [size u32] ftyp/moov box
+    b.len() >= 8 && &b[4..8] == b"ftyp"
+}
+
+/// A playlist body: starts with the #EXTM3U tag (BOM/blank-line tolerant).
+fn looks_like_playlist_body(b: &[u8]) -> bool {
+    let t = String::from_utf8_lossy(&b[..b.len().min(64)]);
+    t.trim_start_matches('\u{feff}')
+        .trim_start()
+        .starts_with("#EXTM3U")
+}
+
 /// Fetch `url`, descending through master playlists (variant lists) until a
 /// media playlist is found. Returns the media playlist URL (kept for resume
 /// state) and its parsed plan.
@@ -294,7 +381,7 @@ async fn resolve_media(
 ) -> Result<(String, Plan)> {
     let mut url = url.to_string();
     for _ in 0..4 {
-        let bytes = fetch_bytes(client, headers, &url).await?;
+        let bytes = fetch_valid(client, headers, &url, looks_like_playlist_body).await?;
         let text = String::from_utf8(bytes).context("playlist is not utf-8")?;
         let plan = parse_playlist(&text, &url)?;
         match plan.variant.clone() {
@@ -331,7 +418,16 @@ async fn fetch_item(
     key_cache: &Mutex<HashMap<String, [u8; 16]>>,
     item: &Item,
 ) -> Result<Vec<u8>> {
-    let body = fetch_bytes(client, headers, item.url()).await?;
+    // media payloads must look like media: TS sync byte / fMP4 box or a
+    // subtitle track. Small plain-text bodies are WAF error pages
+    // ("security error") and must never be written into the output file.
+    let media_ok = |b: &[u8]| {
+        looks_like_media(b)
+            || b.starts_with(b"WEBVTT")
+            || b.starts_with(b"\xef\xbb\xbfWEBVTT")
+            || !looks_like_error_page(b)
+    };
+    let body = fetch_valid(client, headers, item.url(), media_ok).await?;
     let Item::Media { key, seq, .. } = item else {
         return Ok(body); // init segments are not encrypted
     };
@@ -342,7 +438,9 @@ async fn fetch_item(
         match cached {
             Some(m) => m,
             None => {
-                let k = fetch_bytes(client, headers, &key.spec.uri).await?;
+                let key_ok =
+                    |b: &[u8]| b.len() == 16 && b.iter().any(|&c| !(0x20..0x7f).contains(&c));
+                let k = fetch_valid(client, headers, &key.spec.uri, key_ok).await?;
                 if k.len() != 16 {
                     bail!("AES key is {} bytes (want 16)", k.len());
                 }
