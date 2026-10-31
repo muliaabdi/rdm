@@ -4,45 +4,50 @@
 <meta charset="utf-8" />
 <title>Rust Download Manager</title>
 <style>
+  /* Design system: clean minimal flat.
+     Cool neutrals + one blue accent; green/amber/red/blue are status semantics
+     only. No gradients except the segmented progress fill (it encodes
+     per-segment completion) and the speed graph (data viz). Radius: 5-6px
+     controls, 8-10px overlays. Shadow only on overlays. */
   :root {
     color-scheme: light;
-    --bg: #f5f4f0; --chrome: #f7f6f2; --chrome-hi: #fdfcfa; --chrome-lo: #eeede7; --chrome-act: #e5e3da;
-    --line: #e4e2d9; --line2: #d6d3c7; --line-hov: #c3c0b2;
-    --txt: #23262b; --dim: #6a6f76; --txt2: #4a4e54; --dim2: #8b8e93;
-    --accent: #2f6fb8; --sel: #316ac5; --sel-bg: #e3eefd; --sel-edge: #27509e;
-    --green: #2e8b30; --green-hi: #57b85c;
-    --amber: #96520a; --red: #c0392b; --fill-fail: #d9534f; --fill-pause: #d99a2b;
-    --track: #eceeec; --track2: #eaeceb;
-    --panel: #fff; --panel-hi: #fbfaf8; --hover: #f3f6fa; --rowline: #f5f4ef;
-    --cat-sel: #e7eefb; --cat-sel-txt: #1d4d8f; --cat-sel-cnt: #4d6f9f;
-    --done: #0a5d0e; --sel-dim: #5c6470;
-    --input-bg: #fff; --btn-bg: #fff; --btn-hi: #f4f2ea; --btn-act: #eae7dc;
-    --menu-bg: #fdfcfa; --menu-hov: #e9effb;
-    --sb: #d8d5ca; --sb-hi: #c3c0b2; --sb-edge: #fff;
-    --focus: #8fb1e6;
+    --bg: #f3f4f6; --surface: #ffffff; --surface-2: #fafbfc; --hover: #f1f3f6;
+    --line: #e4e6ea; --line-2: #d3d7dd; --sep: #c9ced8;
+    --ctl: #8a93a0; --ctl-hov: #6f7885;
+    --txt: #1a1d21; --txt-2: #444a53; --dim: #5d6470; --dim-2: #6d7480;
+    --accent: #2b62c4; --accent-btn: #2b62c4; --accent-hi: #3870d2; --accent-act: #23509f;
+    --sel-bg: #eaf1fc; --focus: #2b62c4;
+    --ok: #177c31; --amber: #94620a; --red: #bd3325; --info: #3a67b8;
+    --fill-ok: #268a3c; --fill-red: #d9534f; --fill-amber: #d99a2b;
+    --track: #e8eaee;
+    --input-bg: #ffffff; --menu-bg: #ffffff; --menu-hov: #f1f3f6;
+    --btn-bg: #ffffff; --btn-hi: #f3f5f8; --btn-act: #e9ecf1;
+    --tool-hov: #e9ebee; --tool-act: #dfe3e9;
+    --toast-bg: #26292f; --toast-txt: #f2f3f5;
+    --sb: #c9cdd4; --sb-hi: #a8afb9; --edge: #ffffff;
   }
   [data-theme="dark"] {
     color-scheme: dark;
-    --bg: #1a1c20; --chrome: #202329; --chrome-hi: #252931; --chrome-lo: #282d36; --chrome-act: #313742;
-    --line: #2b3039; --line2: #373d4a; --line-hov: #485060;
-    --txt: #e2e6eb; --dim: #9aa2b0; --txt2: #c5cbd4; --dim2: #848c99;
-    --accent: #4f8ddb; --sel: #3f6fb8; --sel-bg: #24344b; --sel-edge: #2f5aa8;
-    --green: #48bb52; --green-hi: #62cf6c;
-    --amber: #e5a43b; --red: #e66255; --fill-fail: #d9534f; --fill-pause: #d99a2b;
-    --track: #262930; --track2: #2c3038;
-    --panel: #1e2127; --panel-hi: #22262d; --hover: #262b34; --rowline: #242830;
-    --cat-sel: #24344b; --cat-sel-txt: #9cc2f0; --cat-sel-cnt: #6f92c4;
-    --done: #48bb52; --sel-dim: #b0b8c6;
-    --input-bg: #181a1f; --btn-bg: #262a32; --btn-hi: #2e333d; --btn-act: #363c48;
-    --menu-bg: #22262d; --menu-hov: #29354a;
-    --sb: #3a404c; --sb-hi: #474f5e; --sb-edge: #1e2127;
-    --focus: #6097e6;
+    --bg: #17181c; --surface: #1f2126; --surface-2: #23262c; --hover: #272b32;
+    --line: #2d313a; --line-2: #3c414d; --sep: #40454f;
+    --ctl: #6b7484; --ctl-hov: #8a93a4;
+    --txt: #e7e9ec; --txt-2: #c5cad2; --dim: #9aa2ad; --dim-2: #8a92a0;
+    --accent: #7db0f7; --accent-btn: #3d6fd6; --accent-hi: #4c7ede; --accent-act: #2f5cb0;
+    --sel-bg: #26344a; --focus: #7db0f7;
+    --ok: #62c875; --amber: #e0a63e; --red: #ef8071; --info: #8fb4f5;
+    --fill-ok: #4fae60; --fill-red: #d9534f; --fill-amber: #d99a2b;
+    --track: #2b2f37;
+    --input-bg: #1a1c20; --menu-bg: #23262c; --menu-hov: #2a3040;
+    --btn-bg: #262a31; --btn-hi: #2d323b; --btn-act: #343a45;
+    --tool-hov: #2e333c; --tool-act: #363c47;
+    --toast-bg: #26292f; --toast-txt: #f2f3f5;
+    --sb: #3a404c; --sb-hi: #4c5361; --edge: #1f2126;
   }
   * { box-sizing: border-box; user-select: none; }
   html, body { height: 100%; }
   body {
     margin: 0;
-    font: 12px/1.45 system-ui, "Segoe UI", Ubuntu, "Noto Sans", "DejaVu Sans", sans-serif;
+    font: 12.5px/1.45 system-ui, "Segoe UI", Ubuntu, "Noto Sans", "DejaVu Sans", sans-serif;
     color: var(--txt);
     background: var(--bg);
     display: flex; flex-direction: column; overflow: hidden;
@@ -51,116 +56,110 @@
   input, select { user-select: text; }
   button { font: inherit; }
 
-  /* ---- custom titlebar (undecorated main window) ---- */
+  /* ---- top bar: window title + actions in one row ---- */
   #titlebar {
-    display: flex; align-items: center; gap: 2px; height: 34px;
-    padding: 0 6px 0 12px; flex: none;
-    background: var(--chrome); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 3px; height: 46px;
+    padding: 0 8px 0 12px; flex: none;
+    background: var(--bg); border-bottom: 1px solid var(--line);
   }
-  #titlebar .tb-title { font-size: 11.5px; font-weight: 650; letter-spacing: .02em; color: var(--txt2); }
-  #titlebar .tb-grow { flex: 1; }
-  .tb-btn {
-    width: 30px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-    border: none; border-radius: 7px; background: transparent; color: var(--dim);
-    transition: background-color .12s ease, color .12s ease, transform .08s ease;
-  }
-  .tb-btn:hover { background: var(--chrome-lo); color: var(--txt); }
-  .tb-btn:active { background: var(--chrome-act); transform: scale(.94); }
-  .tb-btn.cls:hover { background: #d9534f; color: #fff; }
-  .tb-btn svg { width: 12px; height: 12px; }
-
-  /* ---- toolbar ---- */
-  #toolbar {
-    display: flex; align-items: center; gap: 2px; padding: 0 10px; height: 46px; flex: none;
-    background: var(--chrome);
-    border-bottom: 1px solid var(--line);
+  #titlebar .tb-title {
+    font-size: 12px; font-weight: 650; color: var(--txt-2); margin: 0 9px 0 2px;
   }
   .tbtn {
-    display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px;
-    border: 1px solid transparent; border-radius: 8px;
-    background: transparent; color: var(--txt2); cursor: default;
-    transition: background-color .15s cubic-bezier(.16,1,.3,1), color .15s cubic-bezier(.16,1,.3,1), border-color .15s cubic-bezier(.16,1,.3,1), transform .08s ease;
-  }
-  .tbtn:hover { background: var(--chrome-lo); color: var(--txt); }
-  .tbtn:active { background: var(--chrome-act); transform: scale(.97); }
-  .tbtn[disabled] { opacity: .38; pointer-events: none; }
-  .tbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-  .tbtn svg { width: 16px; height: 16px; flex: none; color: var(--dim); transition: color .15s ease; }
-  .tbtn:hover svg { color: var(--txt2); }
-  .tbtn span { font-size: 11.5px; }
-  /* icon-only toolbar buttons (priority up/down): square hit area */
-  .tbtn.ico { padding: 0; width: 32px; justify-content: center; gap: 0; }
-  /* one filled control: the primary action owns the accent */
-  #b-add { background: var(--accent); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
-  #b-add:hover { background: #275f9f; color: #fff; }
-  #b-add:active { background: #22548d; transform: scale(.97); }
-  #b-add svg, #b-add:hover svg { color: #fff; }
-  .tsep { width: 1px; height: 18px; margin: 0 6px; flex: none; background: var(--line2); }
-  #spacer { flex: 1; }
-
-  /* ---- main split ---- */
-  #main { flex: 1; display: flex; min-height: 0; background: var(--panel); }
-
-  /* ---- categories ---- */
-  #cats {
-    width: 172px; flex: none; background: var(--chrome);
-    border-right: 1px solid var(--line);
-    padding: 12px 8px; overflow-y: auto;
-  }
-  #cats h3 {
-    margin: 0 0 8px; padding: 0 9px; font-size: 11px; font-weight: 600; color: var(--dim);
-  }
-  #cats h3 + #catlist + h3 { margin-top: 16px; }
-  .cat .ic.qi { border-radius: 3px; }
-  .cat {
-    display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 9px;
-    border-radius: 7px; cursor: default; color: var(--txt2);
+    display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 9px;
+    border: 1px solid transparent; border-radius: 6px;
+    background: transparent; color: var(--txt-2); cursor: default; font-size: 12px;
     transition: background-color .12s ease, color .12s ease;
   }
-  .cat:hover { background: var(--chrome-lo); }
-  .cat.sel { background: var(--cat-sel); color: var(--cat-sel-txt); }
-  .cat .ic { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .cat .cnt { margin-left: auto; font-size: 11px; color: var(--dim2); font-variant-numeric: tabular-nums; }
-  .cat.sel .cnt { color: var(--cat-sel-cnt); }
+  .tbtn:hover { background: var(--tool-hov); color: var(--txt); }
+  .tbtn:active { background: var(--tool-act); }
+  .tbtn[disabled] { opacity: .38; pointer-events: none; }
+  .tbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .tbtn svg { width: 15px; height: 15px; flex: none; color: var(--dim); transition: color .12s ease; }
+  .tbtn:hover svg { color: var(--txt-2); }
+  .tbtn.ico { padding: 0; width: 30px; justify-content: center; gap: 0; }
+  /* narrow windows: drop button labels first, keep the actions icon-only */
+  @media (max-width: 759px) {
+    #titlebar { padding-left: 8px; }
+    .tbtn > span { display: none; }
+    #b-add { padding: 0; width: 30px; justify-content: center; }
+  }
+  /* the one filled control: the primary action owns the accent */
+  #b-add { background: var(--accent-btn); color: #fff; padding: 0 12px; }
+  #b-add:hover { background: var(--accent-hi); color: #fff; }
+  #b-add:active { background: var(--accent-act); }
+  #b-add svg, #b-add:hover svg { color: #fff; }
+  .tsep { width: 1px; height: 18px; margin: 0 5px; flex: none; background: var(--sep); }
+  #spacer { flex: 1; }
+  .tb-btn {
+    width: 34px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    border: none; border-radius: 6px; background: transparent; color: var(--dim);
+    transition: background-color .12s ease, color .12s ease;
+  }
+  .tb-btn:hover { background: var(--tool-hov); color: var(--txt); }
+  .tb-btn:active { background: var(--tool-act); }
+  .tb-btn.cls:hover { background: #d9534f; color: #fff; }
+  .tb-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .tb-btn svg { width: 12px; height: 12px; }
 
-  /* ---- queues ---- */
-  #qlist .cat .ic.qi { width: 9px; height: 9px; border-radius: 3px; }
-  #qlist .cat .run-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); flex: none; }
-  #qlist .cat.drop { background: var(--cat-sel); color: var(--cat-sel-txt); box-shadow: inset 0 0 0 1px var(--accent); }
+  /* ---- main split ---- */
+  #main { flex: 1; display: flex; min-height: 0; background: var(--surface); }
+
+  /* ---- sidebar: categories + queues, plain text navigation ---- */
+  #cats {
+    width: 168px; flex: none; background: var(--bg);
+    border-right: 1px solid var(--line);
+    padding: 10px 8px; overflow-y: auto;
+  }
+  #cats h3 {
+    margin: 14px 9px 6px; font-size: 11px; font-weight: 600; color: var(--dim);
+  }
+  #cats h3:first-child { margin-top: 4px; }
+  .cat {
+    display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px;
+    border-radius: 6px; cursor: default; color: var(--txt-2); font-size: 12.5px;
+    transition: background-color .12s ease, color .12s ease;
+  }
+  .cat:hover { background: var(--hover); color: var(--txt); }
+  .cat.sel { background: var(--sel-bg); color: var(--accent); }
+  .cat:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  .cat .cnt { margin-left: auto; font-size: 11px; color: var(--dim);
+    font-variant-numeric: tabular-nums; }
+  #qlist .cat .run-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+  #qlist .cat.drop { background: var(--sel-bg); color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent); }
   /* scheduler position, shown only inside a queue view */
-  .row .rank { width: 15px; flex: none; text-align: center; color: var(--dim2);
+  .row .rank { width: 16px; flex: none; text-align: center; color: var(--dim-2);
     font-size: 10px; font-variant-numeric: tabular-nums; }
   /* queue header strip above the table when a queue is open */
-  #qhead { display: flex; align-items: center; gap: 10px; height: 38px; flex: none;
-    padding: 0 14px; background: var(--panel-hi); border-bottom: 1px solid var(--line); font-size: 11.5px; }
+  #qhead { display: flex; align-items: center; gap: 10px; height: 36px; flex: none;
+    padding: 0 12px; background: var(--surface-2); border-bottom: 1px solid var(--line); font-size: 11.5px; }
   #qhead[hidden] { display: none; }
-  #qhead .qdot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
   #qhead .qname { font-weight: 650; font-size: 12.5px; }
   #qhead .qmeta { color: var(--dim); font-variant-numeric: tabular-nums; }
   #qhead .qgrow { flex: 1; }
-  .qbtn { display: inline-flex; align-items: center; gap: 6px; height: 25px; padding: 0 10px;
-    border: 1px solid var(--line2); border-radius: 7px; background: var(--btn-bg); color: var(--txt2);
+  .qbtn { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+    border: 1px solid var(--ctl); border-radius: 5px; background: var(--btn-bg); color: var(--txt-2);
     font-size: 11px; cursor: default;
     transition: background-color .12s ease, border-color .12s ease, color .12s ease; }
-  .qbtn:hover { background: var(--btn-hi); border-color: var(--line-hov); color: var(--txt); }
-  .qbtn:active { background: var(--btn-act); transform: scale(.97); }
+  .qbtn:hover { background: var(--btn-hi); border-color: var(--ctl-hov); color: var(--txt); }
+  .qbtn:active { background: var(--btn-act); }
   .qbtn[disabled] { opacity: .4; pointer-events: none; }
   .qbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
   .qbtn svg { width: 11px; height: 11px; flex: none; }
-  .qbtn.go svg { color: var(--green); }
+  .qbtn.go svg { color: var(--ok); }
   /* queue picker: pick an existing label or type a new one */
   #dlg .qopts { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
   #dlg .qopt { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px;
-    border: 1px solid transparent; border-radius: 8px; background: transparent;
-    font: inherit; color: var(--txt2); text-align: left; cursor: default;
+    border: 1px solid transparent; border-radius: 6px; background: transparent;
+    font: inherit; color: var(--txt-2); text-align: left; cursor: default;
     transition: background-color .12s ease; }
   #dlg .qopt:hover { background: var(--hover); }
-  #dlg .qopt .ic { width: 9px; height: 9px; border-radius: 3px; flex: none; }
   #dlg .qopt .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #dlg .qopt .cnt { font-size: 11px; color: var(--dim2); font-variant-numeric: tabular-nums; }
+  #dlg .qopt .cnt { font-size: 11px; color: var(--dim-2); font-variant-numeric: tabular-nums; }
   #dlg .qopt .ck { width: 14px; height: 14px; flex: none; color: var(--accent); visibility: hidden; }
-  #dlg .qopt.cur { background: var(--cat-sel); color: var(--cat-sel-txt); border-color: var(--sel-edge); }
-  #dlg .qopt.cur .cnt { color: var(--cat-sel-cnt); }
+  #dlg .qopt.cur { background: var(--sel-bg); color: var(--accent); }
+  #dlg .qopt.cur .cnt { color: var(--dim); }
   #dlg .qopt.cur .ck { visibility: visible; }
   #dlg .qopt:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   #dlg .qnew { display: flex; gap: 8px; margin-bottom: 10px; }
@@ -168,278 +167,279 @@
   #dlg .qnew button { flex: none; padding: 6px 14px; }
 
   /* ---- table ---- */
-  #listwrap { flex: 1; min-width: 0; background: var(--panel); display: flex; flex-direction: column; }
+  #listwrap { flex: 1; min-width: 0; background: var(--surface); display: flex; flex-direction: column; }
   #head, .row {
     display: grid;
-    grid-template-columns: minmax(180px, 1fr) 84px 148px 96px 74px 88px;
+    grid-template-columns: minmax(150px, 1fr) 64px minmax(96px, 150px) 88px 64px 80px;
     align-items: center;
     padding: 0 12px;
   }
   #head {
-    height: 32px; flex: none;
-    background: var(--panel-hi);
+    height: 30px; flex: none;
+    background: var(--surface-2);
     border-bottom: 1px solid var(--line);
     font-weight: 600; font-size: 11px; color: var(--dim);
+    white-space: nowrap;
   }
   #rows { flex: 1; overflow-y: auto; }
   .row {
     height: 42px; cursor: default;
-    border-bottom: 1px solid var(--rowline);
+    border-bottom: 1px solid var(--line);
     transition: background-color .1s ease;
   }
   .row:hover { background: var(--hover); }
   .row.sel { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--accent); }
   .row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-  .row.sel .dim { color: var(--sel-dim); }
   .row .name {
-    display: flex; align-items: center; gap: 9px;
+    display: flex; align-items: center; gap: 8px;
     overflow: hidden; white-space: nowrap;
   }
-  .row .name .nm { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  .row .name .nm { overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
   .row .name .qtag, .row .name .ptag {
-    flex: none; font-size: 9.5px; line-height: 1; padding: 3px 6px;
-    border-radius: 999px; background: var(--track); color: var(--dim);
+    flex: none; font-size: 10px; line-height: 1;
   }
-  .row .name .ptag { padding: 3px 4px; }
-  .row .name .ptag.up { color: #4a7bd0; }
+  .row .name .qtag { padding: 3px 5px; border-radius: 4px;
+    border: 1px solid var(--line-2); color: var(--dim); }
+  .row .name .ptag { padding: 3px 2px; }
+  .row .name .ptag.up { color: var(--info); }
   .row .name .ptag.dn { color: var(--dim); }
   .row .name .ptag.lm { color: var(--amber); }
-  .row .name .ptag.ok { color: var(--green); }
-  .fico { width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex;
-    align-items: center; justify-content: center; font: bold 9.5px/1 sans-serif; color: #fff; }
+  .row .name .ptag.ok { color: var(--ok); }
+  .fico { width: 22px; height: 22px; flex: none; border-radius: 5px; display: flex;
+    align-items: center; justify-content: center;
+    font: 700 8.5px/1 system-ui, sans-serif; letter-spacing: .02em;
+    background: var(--track); color: var(--txt-2); text-transform: uppercase; }
   .row > div { overflow: hidden; white-space: nowrap; }
   #head > div, .row > div { padding: 0 8px; }
   #head > div:first-child, .row > div:first-child { padding-left: 0; }
   #head > div:last-child, .row > div:last-child { padding-right: 0; }
-  .num, .st, .dim { text-align: right; font-variant-numeric: tabular-nums; }
+  .num, .dim { text-align: right; font-variant-numeric: tabular-nums; }
   .dim { color: var(--dim); font-size: 11.5px; }
-  /* status is a chip inside rows; the header keeps the plain column label */
-  .row .st {
-    justify-self: start; display: inline-flex; align-items: center;
-    padding: 2px 9px; border-radius: 999px;
-    font-size: 10.5px; font-weight: 600; text-align: left;
-  }
-  .st.running { color: var(--green); background: rgba(83,179,86,.13); }
-  .st.confirming, .st.resolving { color: var(--dim); background: var(--track); }
-  .st.paused { color: var(--amber); background: rgba(217,164,65,.14); }
-  .st.queued { color: #4a7bd0; background: rgba(74,123,208,.14); }
-  .st.failed { color: var(--red); background: rgba(224,104,92,.14); }
-  .st.completed { color: var(--done); background: rgba(83,179,86,.13); }
-  .st.cancelled { color: var(--dim); background: var(--track); }
-  .st.missing { color: var(--amber); background: rgba(217,164,65,.14); }
-  .st.retrying { color: #4a7bd0; background: rgba(74,123,208,.14); }
+  /* status is colored text; the label itself carries the meaning */
+  .row .st { justify-self: start; font-size: 11.5px; font-weight: 600; text-align: left; }
+  .st.running { color: var(--ok); }
+  .st.confirming, .st.resolving { color: var(--dim); }
+  .st.paused { color: var(--amber); }
+  .st.queued { color: var(--info); }
+  .st.failed { color: var(--red); }
+  .st.completed { color: var(--ok); }
+  .st.cancelled { color: var(--dim); }
+  .st.missing { color: var(--amber); }
+  .st.retrying { color: var(--info); }
 
   .row > .pcol { display: flex; align-items: center; gap: 8px; }
   .cellbar {
-    position: relative; height: 6px; flex: 1; border-radius: 999px; overflow: hidden;
-    background: var(--track2);
+    position: relative; height: 5px; flex: 1; border-radius: 999px; overflow: hidden;
+    background: var(--track);
   }
   .cellbar > .fill {
     position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
-    transition: width .4s cubic-bezier(.16,1,.3,1), background-color .2s;
+    transition: width .35s linear, background-color .2s;
   }
+  /* shimmer marks a real state: bytes are moving in this row right now */
   .cellbar.pulse > .fill::after {
     content: ""; position: absolute; inset: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.22) 50%, transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.25) 50%, transparent 100%);
+    animation: barShimmer 1.8s infinite linear;
+  }
+  .dv-fill.pulse::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.25) 50%, transparent 100%);
     animation: barShimmer 1.8s infinite linear;
   }
   @keyframes barShimmer {
     from { transform: translateX(-100%); }
     to { transform: translateX(100%); }
   }
-  .pct { width: 32px; flex: none; text-align: right; font-size: 10.5px;
+  .pct { width: 30px; flex: none; text-align: right; font-size: 11px;
     color: var(--dim); font-variant-numeric: tabular-nums; }
-  .row .spd { color: var(--txt2); font-size: 11.5px; }
+  .row .spd { color: var(--txt-2); font-size: 12px; }
 
   /* ---- details dialog ---- */
   #dlg.wide { width: 560px; }
-  .dt-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; min-width: 0; }
+  .dt-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; min-width: 0; }
   .dt-head .dt-name { font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
   .dt-head .dt-st { margin-left: auto; flex: none; font-size: 11px; }
-  /* percent sits inside the bar so the bar keeps the full dialog width */
-  .bigbar { position: relative; height: 16px; margin-bottom: 10px; overflow: hidden;
-    background: var(--track); border-radius: 999px; }
-  .bigbar > .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
-    transition: width .45s linear, background-color .2s; }
-  .errline { display: none; margin: 0 0 10px; color: var(--red); font-size: 11px;
+  .errline { display: none; margin: 0 0 10px; color: var(--red); font-size: 11.5px;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
   .errline.on { display: block; }
-  .dgrid { display: grid; grid-template-columns: 96px 1fr 96px 1fr; gap: 4px 10px; font-size: 11px; margin-bottom: 14px; }
+  .dgrid { display: grid; grid-template-columns: 96px 1fr 96px 1fr; gap: 4px 10px; font-size: 11.5px; margin-bottom: 14px; }
   .dgrid .k { color: var(--dim); }
   .dgrid .v { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
-  .dt-gtitle { font-size: 10px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
-  .dgraph { width: 100%; height: 96px; display: block; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .dt-gtitle { font-size: 11px; font-weight: 600; color: var(--dim); margin-bottom: 6px; }
+  .dgraph { width: 100%; height: 96px; display: block; border: 1px solid var(--line-2);
+    border-radius: 6px; background: var(--surface); }
 
   /* ---- details dialog v2 ---- */
-  .dv { display: flex; flex-direction: column; gap: 11px; }
+  .dv { display: flex; flex-direction: column; gap: 12px; }
   .dv-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
-  .dv-ico { width: 34px; height: 34px; flex: none; border-radius: 10px; display: flex;
-    align-items: center; justify-content: center; font: 700 10px/1 sans-serif; color: #fff; letter-spacing: .02em; }
+  .dv-ico { width: 32px; height: 32px; flex: none; border-radius: 6px; display: flex;
+    align-items: center; justify-content: center;
+    font: 700 9.5px/1 system-ui, sans-serif; letter-spacing: .02em;
+    background: var(--track); color: var(--txt-2); }
   .dv-titles { min-width: 0; }
-  .dv-name { font-weight: 650; font-size: 12.5px; overflow: hidden; white-space: nowrap;
+  .dv-name { font-weight: 650; font-size: 13px; overflow: hidden; white-space: nowrap;
     text-overflow: ellipsis; user-select: text; }
-  .dv-sub { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 11px; color: var(--dim); }
+  .dv-sub { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 11.5px; color: var(--dim); }
   .dv-sub .dot { opacity: .5; }
   .dv-track { position: relative; height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; }
   .dv-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px;
-    transition: width .4s cubic-bezier(.16,1,.3,1), background-color .2s; }
-  .dv-fill.pulse::after {
-    content: ""; position: absolute; inset: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.28) 50%, transparent 100%);
-    animation: barShimmer 1.8s infinite linear;
-  }
+    transition: width .35s linear, background-color .2s; }
   .dv-meta-line { display: flex; justify-content: space-between; margin-top: 5px;
-    font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
-  .dv-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .dv-stat { background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
-    padding: 7px 10px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .dv-stat b { font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums;
-    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .dv-stat small { font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
-  .dv-path { display: flex; gap: 7px; align-items: center; font-size: 11px; color: var(--dim); }
+    font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .dv-meta-line .live { color: var(--txt-2); }
+  .kvgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 16px; }
+  .kvgrid.c3 { grid-template-columns: repeat(3, 1fr); }
+  .kv { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .kv b { font-size: 12.5px; font-weight: 650; color: var(--txt); font-variant-numeric: tabular-nums;
+    min-height: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .kv small { font-size: 11px; font-weight: 600; color: var(--dim); }
+  .dv-path { display: flex; gap: 7px; align-items: center; font-size: 11.5px; color: var(--dim); }
   .dv-path span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; flex: 1; }
   .dv-path svg { width: 13px; height: 13px; flex: none; opacity: .7; }
   .dv-sha { margin-top: 6px; font-size: 10.5px; color: var(--dim); font-family: ui-monospace, monospace;
     cursor: default; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; user-select: text; }
-  .dv-sha:hover { color: var(--txt2); }
+  .dv-sha:hover { color: var(--txt-2); }
   .dv-btn-copy {
-    border: none; background: transparent; padding: 2px 6px; border-radius: 5px;
-    font-size: 10px; color: var(--accent); cursor: default;
-    transition: background-color .12s, transform .08s;
+    border: none; background: transparent; padding: 2px 6px; border-radius: 4px;
+    font-size: 10.5px; color: var(--accent); cursor: default;
+    transition: background-color .12s ease;
   }
   .dv-btn-copy:hover { background: var(--hover); }
-  .dv-btn-copy:active { transform: scale(.95); }
+  .dv-btn-copy:active { transform: scale(.97); }
 
   /* ---- compact detail window (background offers) ---- */
   html[data-mode="detail"] #titlebar,
-  html[data-mode="detail"] #toolbar,
   html[data-mode="detail"] #main,
   html[data-mode="detail"] #status,
   html[data-mode="detail"] #modal,
   html[data-mode="detail"] #ctx { display: none !important; }
   #detail-root { display: none; }
   html[data-mode="detail"] #detail-root {
-    display: flex; flex-direction: column; gap: 11px; height: 100%;
+    display: flex; flex-direction: column; gap: 12px; height: 100%;
     padding: 14px 16px 16px; overflow-y: auto;
   }
   .dc-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
   .dc-titles { min-width: 0; flex: 1; }
-  .dc-name { font-weight: 650; font-size: 12.5px; line-height: 1.35;
+  .dc-name { font-weight: 650; font-size: 13px; line-height: 1.35;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     user-select: text; word-break: break-all; }
-  .dc-sub { margin-top: 2px; font-size: 11px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
+  .dc-sub { margin-top: 2px; font-size: 11.5px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
   .dc-sub .dot { opacity: .5; }
-  .dc-x { flex: none; width: 24px; height: 24px; margin: -2px -4px 0 0; border: none; border-radius: 7px;
-    background: transparent; color: var(--dim); font-size: 12px; line-height: 1; }
+  .dc-x { flex: none; width: 26px; height: 26px; margin: -2px -4px 0 0; border: none; border-radius: 6px;
+    background: transparent; color: var(--dim); font-size: 12px; line-height: 1; cursor: default; }
   .dc-x:hover { background: var(--hover); color: var(--txt); }
-  .dc-graph { width: 100%; height: 74px; display: block; border: 1px solid var(--line);
-    border-radius: 10px; background: var(--panel); }
+  .dc-x:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .dc-graph { width: 100%; height: 76px; display: block; border: 1px solid var(--line-2);
+    border-radius: 6px; background: var(--surface); }
   .dc-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 2px; }
-  .dc-actions button { flex: 1; padding: 7px 10px; border: 1px solid var(--line2);
-    border-radius: 9px; background: var(--btn-bg); color: var(--txt);
+  .dc-actions button { flex: 1; height: 30px; padding: 0 10px; border: 1px solid var(--ctl);
+    border-radius: 6px; background: var(--btn-bg); color: var(--txt); font-size: 12px; cursor: default;
     transition: background-color .12s ease, border-color .12s ease; }
-  .dc-actions button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
-  .dc-actions button:active { background: var(--btn-act); transform: scale(.97); }
+  .dc-actions button:hover { background: var(--btn-hi); border-color: var(--ctl-hov); }
+  .dc-actions button:active { background: var(--btn-act); }
   .dc-actions button:disabled { opacity: .45; pointer-events: none; }
-  .dc-actions button.pri { border-color: transparent; color: #fff; background: #3569b8; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
-  .dc-actions button.pri:hover { background: #3d74c6; }
-  .dc-actions button.pri:active { background: #2e5da3; transform: scale(.97); }
-  .dc-err { display: none; color: var(--red); font-size: 11px; user-select: text;
+  .dc-actions button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  .dc-actions button.pri { border-color: transparent; color: #fff; background: var(--accent-btn); }
+  .dc-actions button.pri:hover { background: var(--accent-hi); }
+  .dc-actions button.pri:active { background: var(--accent-act); }
+  .dc-err { display: none; color: var(--red); font-size: 11.5px; user-select: text;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .dc-err.on { display: block; }
 
   /* ---- status bar ---- */
   #status {
-    height: 26px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 14px;
-    background: var(--chrome); border-top: 1px solid var(--line);
+    height: 26px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 12px;
+    background: var(--bg); border-top: 1px solid var(--line);
     font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums;
   }
   #s-conn { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-  #s-conn .dot { width: 6px; height: 6px; border-radius: 50%; background: #c9a520; }
-  #s-conn.ok .dot { background: var(--green); }
+  #s-conn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+  #s-conn.ok .dot { background: var(--ok); }
   #s-conn.bad .dot { background: var(--red); }
 
   /* ---- modal ---- */
   #modal {
-    position: fixed; inset: 0; background: rgba(14,16,20,.45);
-    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+    position: fixed; inset: 0; background: rgba(15,17,21,.42);
     display: flex; align-items: center; justify-content: center;
-    opacity: 0; visibility: hidden; transition: opacity .18s cubic-bezier(.16,1,.3,1), visibility .18s;
+    opacity: 0; visibility: hidden; transition: opacity .16s ease-out, visibility .16s;
   }
   #modal.open { opacity: 1; visibility: visible; }
   #dlg {
     width: 400px; max-width: calc(100vw - 32px);
     max-height: calc(100vh - 40px);
     display: flex; flex-direction: column;
-    background: var(--panel-hi); border: 1px solid var(--line2); border-radius: 12px;
-    box-shadow: 0 18px 48px rgba(0,0,0,.35), 0 4px 12px rgba(0,0,0,.15);
-    padding: 16px 18px; transform: scale(.95) translateY(6px); transition: transform .22s cubic-bezier(.16,1,.3,1);
+    background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(10,12,16,.25), 0 2px 8px rgba(10,12,16,.12);
+    padding: 16px 18px;
+    transform: scale(.97) translateY(4px);
+    transition: transform .16s ease-out;
   }
   #modal.open #dlg { transform: scale(1) translateY(0); }
   #dlg h3 { margin: 0 0 12px; font-size: 13px; flex: none; }
   /* tall dialogs scroll their fields; the action row stays pinned */
   #dlg .dlgbody { overflow-y: auto; min-height: 0; flex: 1; margin: 0 -6px; padding: 0 6px; }
   #dlg .sec {
-    flex: none; margin: 14px 0 9px; padding-bottom: 4px; border-bottom: 1px solid var(--line);
-    font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+    flex: none; margin: 16px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+    font-size: 11.5px; font-weight: 600; color: var(--dim);
   }
   #dlg .dlgbody .sec:first-child { margin-top: 0; }
   #dlg input, #dlg select {
-    width: 100%; padding: 7px 10px; margin-bottom: 11px;
-    border: 1px solid var(--line2); border-radius: 8px; font: inherit; background: var(--input-bg); color: var(--txt);
+    width: 100%; padding: 7px 10px; margin-bottom: 12px;
+    border: 1px solid var(--ctl); border-radius: 6px; font: inherit;
+    background: var(--input-bg); color: var(--txt);
     transition: border-color .12s ease;
   }
-  #dlg input:hover, #dlg select:hover { border-color: var(--line-hov); }
-  #dlg input:focus-visible, #dlg select:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; border-color: var(--focus); }
+  #dlg input:hover, #dlg select:hover { border-color: var(--ctl-hov); }
+  #dlg input:focus-visible, #dlg select:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: -1px; border-color: var(--focus);
+  }
   #dlg .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  #dlg .btns .lead { margin-right: auto; }
   #dlg button {
-    padding: 6px 18px; border: 1px solid var(--line2); border-radius: 8px; cursor: default;
+    padding: 6px 16px; border: 1px solid var(--ctl); border-radius: 6px; cursor: default;
     background: var(--btn-bg); color: var(--txt);
     transition: background-color .12s ease, border-color .12s ease;
   }
-  #dlg button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
-  #dlg button:active { background: var(--btn-act); transform: scale(.97); }
+  #dlg button:hover { background: var(--btn-hi); border-color: var(--ctl-hov); }
+  #dlg button:active { background: var(--btn-act); transform: scale(.98); }
   #dlg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-  #dlg button.pri { border-color: transparent; color: #fff; background: #3569b8; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
-  #dlg button.pri:hover { background: #3d74c6; }
-  #dlg button.pri:active { background: #2e5da3; transform: scale(.97); }
-  .mhint { font-size: 11px; color: var(--dim); margin: -4px 0 11px; min-height: 14px; }
-  #dlg .prio-opts { display: flex; gap: 8px; margin-bottom: 11px; }
+  #dlg button.pri { border-color: transparent; color: #fff; background: var(--accent-btn); }
+  #dlg button.pri:hover { background: var(--accent-hi); border-color: transparent; }
+  #dlg button.pri:active { background: var(--accent-act); transform: scale(.98); }
+  .mhint { font-size: 11.5px; color: var(--dim); margin: -4px 0 12px; min-height: 14px; }
+  #dlg .prio-opts { display: flex; gap: 8px; margin-bottom: 12px; }
   #dlg .prio-opts .prio { flex: 1; padding: 8px 0; }
-  #dlg .prio-opts .prio.cur { border-color: #3569b8; color: #3569b8; font-weight: 600; }
+  #dlg .prio-opts .prio.cur { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   #dlg .btns { padding-top: 12px; flex: none; }
   #dlg.hasbody .btns { border-top: 1px solid var(--line); margin-top: 10px; }
   .empty {
     grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 6px;
-    padding: 72px 24px; text-align: center; color: var(--dim);
+    padding: 60px 24px; text-align: center; color: var(--dim);
   }
-  .empty .plate {
-    width: 44px; height: 44px; margin-bottom: 4px; border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    background: var(--track); color: var(--dim);
-  }
-  .empty svg { width: 21px; height: 21px; }
-  .empty .ttl { font-size: 12.5px; font-weight: 600; color: var(--txt2); }
-  .empty .empty-hint { max-width: 320px; font-size: 11.5px; color: var(--dim2); }
+  .empty svg { width: 26px; height: 26px; margin-bottom: 8px; color: var(--dim-2); }
+  .empty .ttl { font-size: 13px; font-weight: 600; color: var(--txt-2); }
+  .empty .empty-hint { max-width: 300px; font-size: 12px; color: var(--dim); }
   .empty button {
     margin-top: 10px; height: 30px; padding: 0 14px;
-    border: 1px solid var(--line2); border-radius: 8px;
-    background: var(--btn-bg); color: var(--txt); font-size: 11.5px;
+    border: 1px solid var(--ctl); border-radius: 6px;
+    background: var(--btn-bg); color: var(--txt); font-size: 12px; cursor: default;
     transition: background-color .12s ease, border-color .12s ease;
   }
-  .empty button:hover { background: var(--btn-hi); border-color: var(--line-hov); }
+  .empty button:hover { background: var(--btn-hi); border-color: var(--ctl-hov); }
+  .empty button:active { background: var(--btn-act); transform: scale(.98); }
   .empty button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
   /* ---- context menu ---- */
   #ctx {
-    position: fixed; z-index: 60; min-width: 178px; display: none; padding: 5px;
-    background: var(--menu-bg); border: 1px solid var(--line2); border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(24,22,14,.20);
+    position: fixed; z-index: 60; min-width: 190px; display: none; padding: 4px;
+    background: var(--menu-bg); border: 1px solid var(--line-2); border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(10,12,16,.2);
   }
   #ctx.open { display: block; }
   #ctx button {
     display: flex; align-items: center; gap: 10px; width: 100%;
-    padding: 6px 12px 6px 10px; border: none; border-radius: 7px;
+    padding: 7px 10px; border: none; border-radius: 5px;
     background: transparent; font: inherit; color: var(--txt); text-align: left; cursor: default;
     transition: background-color .1s ease;
   }
@@ -447,129 +447,132 @@
   #ctx button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   #ctx button:disabled { opacity: .35; pointer-events: none; }
   #ctx button svg { width: 14px; height: 14px; flex: none; color: var(--dim); }
-  #ctx .sep { height: 1px; margin: 4px 9px; background: var(--line); }
+  #ctx .sep { height: 1px; margin: 4px 8px; background: var(--line); }
 
   /* ---- toast ---- */
   #toast {
     position: fixed; left: 50%; bottom: 36px; z-index: 90;
     transform: translateX(-50%) translateY(6px);
-    background: #2b2f36; color: #f2f3f5;
-    padding: 8px 16px; border-radius: 9px; font-size: 12px;
+    background: var(--toast-bg); color: var(--toast-txt);
+    padding: 8px 14px; border-radius: 8px; font-size: 12px;
     max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     box-shadow: 0 8px 24px rgba(0,0,0,.28);
     opacity: 0; pointer-events: none;
-    transition: opacity .15s ease, transform .15s ease;
+    transition: opacity .16s ease-out, transform .16s ease-out;
   }
   #toast.on { opacity: 1; transform: translateX(-50%); }
   /* clipboard offer: quiet bottom-right card, one action, no focus steal */
   #clipoff {
     position: fixed; right: 16px; bottom: 36px; z-index: 89;
     display: flex; align-items: center; gap: 10px;
-    background: #2b2f36; color: #f2f3f5;
-    padding: 9px 10px 9px 14px; border-radius: 10px; font-size: 12px;
+    background: var(--toast-bg); color: var(--toast-txt);
+    padding: 9px 10px 9px 14px; border-radius: 8px; font-size: 12px;
     max-width: min(440px, 86vw); box-shadow: 0 8px 24px rgba(0,0,0,.28);
     opacity: 0; pointer-events: none; transform: translateY(6px);
-    transition: opacity .15s ease, transform .15s ease;
+    transition: opacity .16s ease-out, transform .16s ease-out;
   }
   #clipoff.on { opacity: 1; pointer-events: auto; transform: none; }
   #clipoff .co-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
   #clipoff .co-btns { display: flex; gap: 6px; flex: none; }
-  #clipoff button { border: 0; border-radius: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
-  #clipoff .co-dl { background: var(--green); color: #fff; }
-  #clipoff .co-x { background: rgba(255,255,255,.14); color: #f2f3f5; }
+  #clipoff button { border: 0; border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+  #clipoff .co-dl { background: #1f7a32; color: #fff; }
+  #clipoff .co-x { background: rgba(255,255,255,.14); color: var(--toast-txt); }
   /* exact path the daemon will remove, shown in the delete dialog */
   .delpath {
     font: 500 11px/1.45 ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-    background: var(--track); border-radius: 7px; padding: 7px 10px;
+    background: var(--track); border-radius: 6px; padding: 7px 10px;
     word-break: break-all; user-select: text; color: var(--txt);
   }
   .delpath.dir { color: var(--red); }
-  #dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 11px; }
-  #dlg .fld label { width: 112px; flex: none; color: var(--txt2); line-height: 1.25; }
-  /* tall sub-blocks (folder grid, type grid): label aligns with first row */
-  #dlg .fld:has(> .ftypes) label { align-self: start; padding-top: 8px; }
+  #dlg .fld { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  #dlg .fld label { width: 112px; flex: none; color: var(--txt-2); line-height: 1.25; }
   #dlg .fld input, #dlg .fld select { flex: 1; margin: 0; min-width: 0; }
   #dlg .fld input.narrow { flex: 0 0 108px; }
-  #dlg .fld input.chk { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #2b6cff; }
+  #dlg .fld input.chk { flex: 0 0 auto; width: 15px; height: 15px; accent-color: var(--accent-btn); }
   /* checkbox + inline caption inside a field row (e.g. delete confirmation) */
-  #dlg .fld > label.fchk { width: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: 400; color: var(--txt2); cursor: pointer; }
-  #dlg .fld > label.fchk input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #2b6cff; }
+  #dlg .fld > label.fchk { width: auto; display: inline-flex; align-items: center; gap: 8px; font-weight: 400; color: var(--txt-2); cursor: pointer; }
+  #dlg .fld > label.fchk input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--accent-btn); }
   #dlg .ftypes { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; align-items: center; }
-  #dlg .ftypes .fchk:first-child { grid-column: 1 / -1; padding-bottom: 5px; border-bottom: 1px dashed var(--line); }
-  #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: var(--txt2); cursor: pointer; }
-  #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: #2b6cff; margin: 0; }
+  #dlg .ftypes .fchk:first-child { grid-column: 1 / -1; padding-bottom: 5px; border-bottom: 1px solid var(--line); }
+  #dlg .ftypes .fchk { display: inline-flex; align-items: center; gap: 6px; width: auto; min-width: 96px; font-weight: 400; color: var(--txt-2); cursor: pointer; }
+  #dlg .ftypes .fchk input { flex: 0 0 auto; width: 14px; height: 14px; accent-color: var(--accent-btn); margin: 0; }
   #dlg .ftypes.all .fchk:nth-child(n+2) { opacity: .4; }
   /* category folder overrides: only customized ones are listed */
-  #dlg .cathint { font-size: 11px; color: var(--dim); margin: 0 0 10px; line-height: 1.35; }
-  #dlg .ovrow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
-  #dlg .ovrow > i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  #dlg .ovrow > span { width: 84px; flex: none; font-size: 11.5px; color: var(--txt2); }
+  #dlg .cathint { font-size: 11.5px; color: var(--dim); margin: 0 0 10px; line-height: 1.35; }
+  #dlg .ovrow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #dlg .ovrow > span { width: 84px; flex: none; font-size: 11.5px; color: var(--txt-2); }
   #dlg .ovrow input { margin: 0; }
   #dlg .ovdel {
     flex: none; width: 26px; height: 26px; padding: 0; cursor: default;
-    border: 1px solid var(--line2); background: var(--btn-bg); color: var(--dim); border-radius: 7px;
+    border: 1px solid var(--ctl); background: var(--btn-bg); color: var(--dim); border-radius: 5px;
   }
   #dlg .ovdel:hover { color: var(--red); border-color: var(--red); background: var(--btn-bg); }
-  #dlg .cfld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  #dlg .cfld span { font-size: 11px; color: var(--txt2); display: flex; align-items: center; gap: 6px; }
-  #dlg .cfld span i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  #dlg .cfld input { margin: 0; padding: 6px 9px; }
+  #dlg .ovdel:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+  /* settings form: label above the control, grouped rows */
+  #dlg .fgrp { display: flex; flex-direction: column; gap: 5px; min-width: 0; margin-bottom: 13px; }
+  #dlg .fgrp > label, #dlg .fgrp > span { font-size: 11px; font-weight: 600; color: var(--dim); }
+  #dlg .fgrp input, #dlg .fgrp select { margin: 0; }
+  #dlg .frow { display: grid; gap: 10px; margin-bottom: 13px; }
+  #dlg .frow.c2 { grid-template-columns: 1fr 1fr; }
+  #dlg .frow.c3 { grid-template-columns: repeat(3, 1fr); }
+  #dlg .frow .fgrp { margin-bottom: 0; }
 
   /* settings dialog: tabs + compact rows */
   #dlg.settings { width: 560px; }
   #dlg .tabs {
-    display: flex; gap: 2px; margin: 0 0 14px; border-bottom: 1px solid var(--line); flex: none;
+    display: flex; gap: 2px; margin: 0 0 12px; border-bottom: 1px solid var(--line); flex: none;
   }
   #dlg .tabs button {
-    padding: 8px 14px; border: 0; cursor: default; margin-bottom: -1px; font-size: 12px;
+    padding: 8px 12px; border: 0; cursor: default; margin-bottom: -1px; font-size: 12px;
     background: none; color: var(--dim);
-    border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0;
   }
   #dlg .tabs button:hover { color: var(--txt); background: var(--btn-hi); }
   #dlg .tabs button.on { color: var(--txt); border-bottom-color: var(--accent); font-weight: 600; }
   #dlg .tabs button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   #dlg .tabpane { display: none; }
   #dlg .tabpane.on { display: block; }
-  #dlg .nums { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  /* settings form: label above the control, grouped rows */
   /* folder row: path input + attached browse button */
   #dlg .fldpath { flex: 1; display: flex; min-width: 0; }
-  #dlg .fldpath input { flex: 1; min-width: 0; border-radius: 8px 0 0 8px; border-right: 0; }
+  #dlg .fldpath input { flex: 1; min-width: 0; border-radius: 6px 0 0 6px; border-right: 0; }
   #dlg .fldpath button {
     flex: none; width: 40px; padding: 0; margin: 0; display: grid; place-items: center;
-    border: 1px solid var(--line2); border-left: 0; border-radius: 0 8px 8px 0;
-    background: var(--btn-bg); color: var(--txt2);
+    border: 1px solid var(--ctl); border-left: 0; border-radius: 0 6px 6px 0;
+    background: var(--btn-bg); color: var(--txt-2); cursor: default;
   }
-  #dlg .fldpath button:hover { color: var(--txt); border-color: var(--line-hov); background: var(--btn-hi); }
+  #dlg .fldpath button:hover { color: var(--txt); border-color: var(--ctl-hov); background: var(--btn-hi); }
+  #dlg .fldpath button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
   #dlg .fldpath button svg { width: 15px; height: 15px; }
   /* DNS: mode select with the custom URL field attached underneath */
   #dlg .dnsgrp {
     flex: 1; display: flex; flex-direction: column; min-width: 0;
-    border: 1px solid var(--line2); border-radius: 8px; background: var(--input-bg);
+    border: 1px solid var(--ctl); border-radius: 6px; background: var(--input-bg);
     transition: border-color .12s ease;
   }
-  #dlg .dnsgrp:hover { border-color: var(--line-hov); }
+  #dlg .dnsgrp:hover { border-color: var(--ctl-hov); }
   #dlg .dnsgrp:focus-within { outline: 2px solid var(--focus); outline-offset: -1px; border-color: var(--focus); }
   #dlg .dnsgrp select, #dlg .dnsgrp input { border: 0; background: none; }
   #dlg .dnsgrp select:focus-visible, #dlg .dnsgrp input:focus-visible { outline: none; }
-  #dlg .dnsgrp select { border-radius: 8px 8px 0 0; }
+  #dlg .dnsgrp select { border-radius: 6px 6px 0 0; }
   #dlg .dnsgrp input {
-    display: none; border-radius: 0 0 8px 8px; border-top: 1px dashed var(--line);
+    display: none; border-radius: 0 0 6px 6px; border-top: 1px solid var(--line);
     font-family: inherit;
   }
   #dlg .dnsgrp.custom input { display: block; }
   /* interface tab: full-width toggle rows, checkbox right-aligned */
   #dlg label.tgl {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 9px 2px; margin-bottom: 0; border-bottom: 1px solid var(--line); cursor: pointer;
+    padding: 10px 2px; margin-bottom: 0; border-bottom: 1px solid var(--line); cursor: pointer;
   }
   #dlg label.tgl:last-of-type { border-bottom: 0; }
   #dlg label.tgl span { font-size: 12px; color: var(--txt); }
-  #dlg label.tgl input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #2b6cff; }
+  #dlg label.tgl input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--accent-btn); }
   #dlg label.tgl:hover span { color: var(--accent); }
   /* category folders: "+ add" select reads as an action, not a data field */
   #dlg .ovadd { margin-top: 8px; }
   #dlg .ovadd select {
-    border: 1px dashed var(--line2); background: none; color: var(--dim); margin-bottom: 0;
+    border: 1px dashed var(--ctl); background: none; color: var(--dim); margin-bottom: 0;
     text-align: center; text-align-last: center; appearance: none; -webkit-appearance: none; cursor: default;
   }
   #dlg .ovadd select:hover { color: var(--txt); border-color: var(--accent); background: var(--btn-hi); }
@@ -577,7 +580,7 @@
   /* ---- scrollbars ---- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--sb); border: 2px solid var(--sb-edge); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb { background: var(--sb); border: 2px solid var(--edge); border-radius: 999px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--sb-hi); }
 
   @media (prefers-reduced-motion: reduce) {
@@ -600,36 +603,22 @@
 <body>
 
 <div id="titlebar" data-tauri-drag-region>
-  <span class="tb-title">Rust Download Manager</span>
-  <div class="tb-grow" data-tauri-drag-region></div>
-  <button type="button" class="tb-btn" id="w-min" aria-label="Minimize">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
-  </button>
-  <button type="button" class="tb-btn" id="w-max" aria-label="Maximize">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-  </button>
-  <button type="button" class="tb-btn cls" id="w-close" aria-label="Close">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-  </button>
-</div>
-
-<div id="toolbar" role="toolbar" aria-label="RDM">
+  <span class="tb-title" data-tauri-drag-region>RDM</span>
   <button type="button" class="tbtn" id="b-add" data-i18n-title="add_url">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9m-4.5-4.5L12 12l4.5-4.5"/><path d="M4 16v2.2c0 .7.6 1.3 1.3 1.3h13.4c.7 0 1.3-.6 1.3-1.3V16"/></svg>
     <span data-i18n="add_url">Add URL</span>
   </button>
   <div class="tsep"></div>
   <button type="button" class="tbtn" id="b-resume" disabled data-i18n-title="resume">
-    <svg viewBox="0 0 24 24" fill="#2e8b30" aria-hidden="true"><path d="M7.5 4.8c0-.9 1-1.5 1.8-1L19 10.2c.8.5.8 1.6 0 2.1L9.3 18.9c-.8.5-1.8-.1-1.8-1z"/></svg>
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 4.8c0-.9 1-1.5 1.8-1L19 10.2c.8.5.8 1.6 0 2.1L9.3 18.9c-.8.5-1.8-.1-1.8-1z"/></svg>
     <span data-i18n="resume">Resume</span>
   </button>
   <button type="button" class="tbtn" id="b-stop" disabled data-i18n-title="stop">
-    <svg viewBox="0 0 24 24" fill="#c0392b" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
     <span data-i18n="stop">Stop</span>
   </button>
-  <div class="tsep"></div>
   <button type="button" class="tbtn" id="b-delete" disabled data-i18n-title="delete">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8c0-.4.4-.8.8-.8h3.4c.4 0 .8.4.8.8V7m-9.7 0l.9 12.3c.1.9.8 1.7 1.8 1.7h7c1 0 1.7-.8 1.8-1.7L17.2 7M10 11v6m4-6v6"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8c0-.4.4-.8.8-.8h3.4c.4 0 .8.4.8.8V7m-9.7 0l.9 12.3c.1.9.8 1.7 1.8 1.7h7c1 0 1.7-.8 1.8-1.7L17.2 7M10 11v6m4-6v6"/></svg>
     <span data-i18n="delete">Delete</span>
   </button>
   <button type="button" class="tbtn" id="b-restart" disabled data-i18n-title="restart">
@@ -648,10 +637,20 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>
     <span data-i18n="q_btn">Queue</span>
   </button>
-  <div id="spacer"></div>
+  <div id="spacer" data-tauri-drag-region></div>
   <button type="button" class="tbtn" id="b-options" data-i18n-title="settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3m0 13v3M2.5 12h3m13 0h3M5.3 5.3l2.1 2.1m9.2 9.2l2.1 2.1m0-13.4l-2.1 2.1m-9.2 9.2l-2.1 2.1"/></svg>
     <span data-i18n="settings">Settings</span>
+  </button>
+  <div class="tsep"></div>
+  <button type="button" class="tb-btn" id="w-min" aria-label="Minimize">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+  </button>
+  <button type="button" class="tb-btn" id="w-max" aria-label="Maximize">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+  </button>
+  <button type="button" class="tb-btn cls" id="w-close" aria-label="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
   </button>
 </div>
 
@@ -748,7 +747,7 @@ async function focusWindow() {
   const tb = document.getElementById("titlebar");
   if (tb) tb.addEventListener("dblclick", (e) => {
     // only the bare bar itself, never the buttons
-    if (e.target.closest(".tb-btn")) return;
+    if (e.target.closest("button")) return;
     const w = win(); if (w) guard(w.toggleMaximize());
   });
 })();
@@ -759,7 +758,7 @@ const I18N = {
     add_url: "Add URL", resume: "Resume", stop: "Stop", delete: "Delete",
     restart: "Restart", settings: "Settings", downloads: "Downloads",
     col_name: "Name", col_size: "Size", col_progress: "Progress", col_status: "Status",
-    col_eta: "Time left", col_speed: "Speed", col_file: "File", col_category: "Category",
+    col_eta: "ETA", col_speed: "Speed", col_file: "File", col_category: "Category",
     col_downloaded: "Downloaded", speed_graph: "Speed graph",
     no_selection: "No download selected", items_zero: "0 items", total_zero: "0 B/s total",
     empty_title: "No downloads yet",
@@ -772,6 +771,7 @@ const I18N = {
     empty_hint: "Grab links with the browser extension, or use Add URL above.",
     error_label: "Error", tt_lang: "Switch language",
     st_completed: "Done", st_failed: "Failed", st_paused: "Paused",
+    st_running: "Running",
     st_cancelled: "Cancelled", st_queued: "Queued", st_missing: "Missing",
     st_retrying: "Retry {n}/{m}",
     fld_parallel: "Max parallel jobs", fld_notify: "Notify when done",
@@ -779,14 +779,14 @@ const I18N = {
     del_title: "Delete download", del_hint: "Remove this job from the list.",
     del_files: "Also delete partial files", btn_delete: "Delete",
     del_will_file: "This file will be deleted permanently:", del_will_dir: "This folder and everything inside it will be deleted permanently:",
-    del_kept: "The finished file stays on disk:", del_none: "No files will be removed — only the list entry.",
+    del_kept: "The finished file stays on disk:", del_none: "No files will be removed, only the list entry.",
     items_fmt: "{n} items · {m} active", total_fmt: "{s} total",
     u_h: "h", u_m: "m", u_s: "s",
     dlg_add_title: "Add download URL",
     ph_url: "file link, or a video page (YouTube, etc.)",
     btn_detect: "Detect quality", btn_cancel: "Cancel", btn_download: "Download",
     opt_gallery: "{n} files (gallery)",
-    hint_page: "Video page detected — click Detect.",
+    hint_page: "Video page detected: click Detect.",
     hint_detecting: "Detecting… (a few seconds)",
     hint_fail: "Detection failed: {e}",
     dlg_quality_title: "Choose quality", opt_audio: "Audio only",
@@ -806,14 +806,14 @@ const I18N = {
     fld_ftype: "File types", fld_extra: "Extra types",
     ft_all: "All files", ft_images: "Images", ft_videos: "Videos", ft_audio: "Audio",
     ft_docs: "Documents", ft_apps: "Apps", ft_arch: "Archives", ft_others: "Others",
-    ft_empty_all: "No types selected — intercepting all files",
+    ft_empty_all: "No types selected: intercepting all files",
     ph_intercept: "custom, e.g. bin dat",
     fld_autostart: "Start with system",
     fld_dns: "DNS resolver", opt_dns_sys: "System default",
     opt_dns_cf: "Cloudflare DoH (1.1.1.1) [Bypass ISP]",
     opt_dns_gg: "Google DoH (8.8.8.8)", opt_dns_custom: "Custom DoH URL",
     ph_dns_custom: "https://your-doh-server/dns-query",
-    sec_behavior: "Behavior", btn_browse: "Browse",
+    sec_behavior: "Behavior", btn_browse: "Browse", btn_copy: "Copy", btn_copied: "Copied!",
     confirm_title: "Confirm download", confirm_hint: "RDM intercepted this browser download.",
     col_url: "URL", st_confirming: "Waiting", st_resolving: "Resolving…",
     ctx_limit: "Speed limit…", ctx_priority: "Priority", ctx_queue: "Move to queue…",
@@ -839,7 +839,7 @@ const I18N = {
     add_url: "Tambah URL", resume: "Lanjutkan", stop: "Stop", delete: "Hapus",
     restart: "Ulangi", settings: "Pengaturan", downloads: "Unduhan",
     col_name: "Nama", col_size: "Ukuran", col_progress: "Progres", col_status: "Status",
-    col_eta: "Sisa waktu", col_speed: "Kecepatan", col_file: "Berkas", col_category: "Kategori",
+    col_eta: "ETA", col_speed: "Kecepatan", col_file: "Berkas", col_category: "Kategori",
     col_downloaded: "Terunduh", speed_graph: "Grafik kecepatan",
     no_selection: "Tidak ada unduhan dipilih", items_zero: "0 item", total_zero: "0 B/s total",
     empty_title: "Belum ada unduhan",
@@ -852,6 +852,7 @@ const I18N = {
     empty_hint: "Ambil tautan lewat ekstensi browser, atau Tambah URL di atas.",
     error_label: "Galat", tt_lang: "Ganti bahasa",
     st_completed: "Selesai", st_failed: "Gagal", st_paused: "Dijeda",
+    st_running: "Berjalan",
     st_cancelled: "Dibatalkan", st_queued: "Diantrekan", st_missing: "Hilang",
     st_retrying: "Ulang {n}/{m}",
     fld_parallel: "Maks job paralel", fld_notify: "Notifikasi saat selesai",
@@ -859,14 +860,14 @@ const I18N = {
     del_title: "Hapus unduhan", del_hint: "Buang job ini dari daftar.",
     del_files: "Hapus juga berkas sebagian", btn_delete: "Hapus",
     del_will_file: "File ini akan dihapus permanen:", del_will_dir: "Folder ini beserta seluruh isinya akan dihapus permanen:",
-    del_kept: "File hasil unduhan tetap di disk:", del_none: "Tidak ada berkas yang dihapus — hanya entri daftarnya.",
+    del_kept: "File hasil unduhan tetap di disk:", del_none: "Tidak ada berkas yang dihapus, hanya entri daftarnya.",
     items_fmt: "{n} item · {m} aktif", total_fmt: "{s} total",
     u_h: "j", u_m: "m", u_s: "s",
     dlg_add_title: "Tambah URL unduhan",
     ph_url: "tautan berkas, atau halaman video (YouTube, dll.)",
     btn_detect: "Deteksi kualitas", btn_cancel: "Batal", btn_download: "Unduh",
     opt_gallery: "{n} berkas (galeri)",
-    hint_page: "Terdeteksi halaman video — klik Deteksi.",
+    hint_page: "Terdeteksi halaman video: klik Deteksi.",
     hint_detecting: "Mendeteksi… (beberapa detik)",
     hint_fail: "Gagal mendeteksi: {e}",
     dlg_quality_title: "Pilih kualitas", opt_audio: "Audio saja",
@@ -886,14 +887,14 @@ const I18N = {
     fld_ftype: "Jenis berkas", fld_extra: "Jenis tambahan",
     ft_all: "Semua berkas", ft_images: "Gambar", ft_videos: "Video", ft_audio: "Audio",
     ft_docs: "Dokumen", ft_apps: "Aplikasi", ft_arch: "Arsip", ft_others: "Lainnya",
-    ft_empty_all: "Tidak ada jenis dipilih — semua berkas diintersep",
+    ft_empty_all: "Tidak ada jenis dipilih: semua berkas diintersep",
     ph_intercept: "tambahan, mis. bin dat",
     fld_autostart: "Mulai saat login",
     fld_dns: "Resolver DNS", opt_dns_sys: "Sistem (Bawaan)",
     opt_dns_cf: "Cloudflare DoH (1.1.1.1) [Bypass Blokir ISP]",
     opt_dns_gg: "Google DoH (8.8.8.8)", opt_dns_custom: "Kustom DoH URL",
     ph_dns_custom: "https://server-doh-anda/dns-query",
-    sec_behavior: "Perilaku", btn_browse: "Pilih",
+    sec_behavior: "Perilaku", btn_browse: "Pilih", btn_copy: "Salin", btn_copied: "Tersalin!",
     confirm_title: "Konfirmasi unduhan", confirm_hint: "Unduhan browser ini dicegat oleh RDM.",
     col_url: "URL", st_confirming: "Menunggu", st_resolving: "Menyelesaikan…",
     ctx_limit: "Batas kecepatan…", ctx_priority: "Prioritas", ctx_queue: "Pindah ke antrean…",
@@ -1001,13 +1002,13 @@ let detailSeen = false;
 let detailId = null;    // job shown in the compact detail window
 
 const CATS = [
-  ["all", "cat_all", "#5a7fbf"],
-  ["compressed", "cat_compressed", "#c9962e"],
-  ["documents", "cat_documents", "#3f9dbd"],
-  ["music", "cat_music", "#b05bb0"],
-  ["video", "cat_video", "#d05050"],
-  ["programs", "cat_programs", "#5d5d5d"],
-  ["other", "cat_other", "#888"],
+  ["all", "cat_all"],
+  ["compressed", "cat_compressed"],
+  ["documents", "cat_documents"],
+  ["music", "cat_music"],
+  ["video", "cat_video"],
+  ["programs", "cat_programs"],
+  ["other", "cat_other"],
 ];
 const EXT = {
   compressed: ["zip","rar","7z","tar","gz","bz2","xz","iso"],
@@ -1045,9 +1046,10 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 function segGradient(segs, size) {
-  // Alternating green stripes per completed segment
-  if (!segs || !size) return "linear-gradient(90deg,#57b85c 0%,#57b85c 0%)";
-  const full = "#57b85c", alt = "#3f9d46";
+  // Alternating green stripes per completed segment; theme-aware pair
+  if (!segs || !size) return "var(--fill-ok)";
+  const dark = document.documentElement.dataset.theme === "dark";
+  const full = dark ? "#5cbd6e" : "#2f9e44", alt = dark ? "#4fae60" : "#268a3c";
   const parts = [];
   segs.forEach((s, i) => {
     const a = (s.start / size) * 100, b = (s.done / Math.max(1, s.end - s.start + 1)) * 100;
@@ -1058,10 +1060,8 @@ function segGradient(segs, size) {
   return `linear-gradient(90deg,${parts.join(",")})`;
 }
 function icoFor(j) {
-  const k = catOf(j);
-  const col = Object.fromEntries(CATS.map(([id, , c]) => [id, c]))[k] || "#888";
-  const ch = { compressed: "Z", documents: "D", music: "♪", video: "▶", programs: "P", other: "?" }[k];
-  return `<span class="fico" style="background:${col}">${ch}</span>`;
+  const m = /\.([a-z0-9]+)$/i.exec(j.filename || "");
+  return `<span class="fico">${esc((m ? m[1] : "?").slice(0, 4))}</span>`;
 }
 
 /* ---------- speed sampling ---------- */
@@ -1100,12 +1100,6 @@ function queueCounts() {
 function qRun(q) {
   return [...jobs.values()].filter((j) => j.status === "running" && (q === "all" || (j.queue || "main") === q)).length;
 }
-// stable color per queue label so sidebar, header and picker agree
-function queueColor(q) {
-  let h = 0;
-  for (let i = 0; i < q.length; i++) h = (h * 31 + q.charCodeAt(i)) % 360;
-  return `hsl(${(h * 47 + 8) % 360},45%,52%)`;
-}
 function renderQueues() {
   const qs = queueCounts();
   const box = $("qlist");
@@ -1118,10 +1112,9 @@ function renderQueues() {
   $("q-sec").hidden = custom.length === 0 && !qs.has("main");
   box.innerHTML = items.map(([id, label, cnt]) => {
     const run = id !== "all" && qRun(id) > 0;
-    const col = id === "all" || id === "main" ? "var(--dim)" : queueColor(id);
     return `<div class="cat ${queueSel === id ? "sel" : ""}" data-q="${esc(id)}" role="button" tabindex="0"
       title="${esc(t("items_fmt", { n: cnt, m: qRun(id) }))}">
-      <span class="ic qi" style="background:${col}"></span>${esc(label)}${run ? '<span class="run-dot"></span>' : ""}
+      ${esc(label)}${run ? '<span class="run-dot"></span>' : ""}
       <span class="cnt">${cnt}</span></div>`;
   }).join("");
   box.querySelectorAll(".cat").forEach((el) => {
@@ -1139,12 +1132,14 @@ function renderQueues() {
 function renderCats() {
   const counts = { all: jobs.size };
   for (const j of jobs.values()) { const k = catOf(j); counts[k] = (counts[k] || 0) + 1; }
-  $("catlist").innerHTML = CATS.map(([id, label, col]) =>
-    `<div class="cat ${cat === id ? "sel" : ""}" data-cat="${id}">
-      <span class="ic" style="background:${col}"></span>${t(label)}
-      <span class="cnt">${counts[id] || 0}</span></div>`).join("");
-  document.querySelectorAll("#catlist .cat").forEach((el) =>
-    (el.onclick = () => { cat = el.dataset.cat; renderCats(); renderRows(); }));
+  $("catlist").innerHTML = CATS.map(([id, label]) =>
+    `<div class="cat ${cat === id ? "sel" : ""}" data-cat="${id}" role="button" tabindex="0">
+      ${t(label)}<span class="cnt">${counts[id] || 0}</span></div>`).join("");
+  document.querySelectorAll("#catlist .cat").forEach((el) => {
+    const pick = () => { cat = el.dataset.cat; renderCats(); renderRows(); };
+    el.onclick = pick;
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } };
+  });
   renderQueues();
 }
 function estSize(j) {
@@ -1173,13 +1168,12 @@ function selectRow(id) {
 function rowHtml(j, idx) {
   const pct = pctOf(j);
   const sz = estSize(j);
-  const fillColor = j.status === "failed" ? "#d9534f"
-    : j.status === "paused" ? "#d99a2b"
+  const fillColor = j.status === "failed" ? "var(--fill-red)"
+    : j.status === "paused" ? "var(--fill-amber)"
     : j.status === "confirming" ? "transparent"
-    : j.status === "completed" ? "var(--green)"
-    : "linear-gradient(90deg,#5fc066,#3d9c44)";
+    : "var(--fill-ok)";
   const w = j.status === "completed" ? 100 : pct;
-  const tip = esc(j.filename + (j.error ? ` — ${j.error}` : ""));
+  const tip = esc(j.filename + (j.error ? `: ${j.error}` : ""));
   // queue label + priority markers: subtle chips next to the name
   const qchip = j.queue && j.queue !== "main" && queueSel === "all"
     ? `<span class="qtag" title="${esc(t("dlg_queue_title") + ": " + j.queue)}">${esc(j.queue)}</span>` : "";
@@ -1198,8 +1192,8 @@ function rowHtml(j, idx) {
     <div class="num dim sz">${sz ? (j.size ? fmt(j.size) : "~" + fmt(sz)) : "?"}</div>
     <div class="pcol"><div class="cellbar ${j.status === "running" ? "pulse" : ""}"><div class="fill" style="width:${w}%;background:${fillColor}"></div></div><span class="pct">${w.toFixed(0)}%</span></div>
     <div class="st ${j.status}${j.missing ? " missing" : ""}">${statusLabel(j)}</div>
-    <div class="num dim eta">${j.status === "running" ? fmtEta(etaOf(j)) : "—"}</div>
-    <div class="num spd">${j.status === "running" ? fmtSpeed(j.speed) : "—"}</div>
+    <div class="num dim eta">${j.status === "running" ? fmtEta(etaOf(j)) : ""}</div>
+    <div class="num spd">${j.status === "running" ? fmtSpeed(j.speed) : ""}</div>
   </div>`;
 }
 function renderRows() {
@@ -1238,9 +1232,9 @@ function renderRows() {
       const szt = j.size ? fmt(j.size) : "?";
       const sz = el.querySelector(".sz");
       if (sz.textContent !== szt) sz.textContent = szt;
-      el.querySelector(".eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
-      el.querySelector(".spd").textContent = j.status === "running" ? fmtSpeed(j.speed) : "—";
-      const tip = j.filename + (j.error ? ` — ${j.error}` : "");
+      el.querySelector(".eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "";
+      el.querySelector(".spd").textContent = j.status === "running" ? fmtSpeed(j.speed) : "";
+      const tip = j.filename + (j.error ? `: ${j.error}` : "");
       const nm = el.querySelector(".nm");
       if (nm.textContent !== j.filename) nm.textContent = j.filename;
       const nameEl = el.querySelector(".name");
@@ -1289,7 +1283,6 @@ function updateQhead() {
   el.dataset.sig = sig;
   el.hidden = false;
   el.innerHTML = `
-    <span class="qdot" style="background:${queueSel === "main" ? "var(--dim)" : queueColor(queueSel)}"></span>
     <span class="qname">${esc(queueSel === "main" ? t("queue_main") : queueSel)}</span>
     <span class="qmeta">${t("items_fmt", { n: rows.length, m: act.length })}</span>
     <span class="qmeta">${fmtSpeed(tot)}</span>
@@ -1342,9 +1335,9 @@ document.addEventListener("contextmenu", (e) => {
 /* ---------- row context menu ---------- */
 const CTX_ICONS = {
   details: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 20v-7m5 7V6m5 14v-10m5 10V9"/></svg>',
-  stop: '<svg viewBox="0 0 24 24" fill="#c0392b" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
-  resume: '<svg viewBox="0 0 24 24" fill="#2e8b30" aria-hidden="true"><path d="M7.5 4.8c0-.9 1-1.5 1.8-1L19 10.2c.8.5.8 1.6 0 2.1L9.3 18.9c-.8.5-1.8-.1-1.8-1z"/></svg>',
-  delete: '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8c0-.4.4-.8.8-.8h3.4c.4 0 .8.4.8.8V7m-9.7 0l.9 12.3c.1.9.8 1.7 1.8 1.7h7c1 0 1.7-.8 1.8-1.7L17.2 7M10 11v6m4-6v6"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  resume: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 4.8c0-.9 1-1.5 1.8-1L19 10.2c.8.5.8 1.6 0 2.1L9.3 18.9c-.8.5-1.8-.1-1.8-1z"/></svg>',
+  delete: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9.5 7V4.8c0-.4.4-.8.8-.8h3.4c.4 0 .8.4.8.8V7m-9.7 0l.9 12.3c.1.9.8 1.7 1.8 1.7h7c1 0 1.7-.8 1.8-1.7L17.2 7M10 11v6m4-6v6"/></svg>',
   openfile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6.8C6 3 5.3 3.7 5.3 4.5v15c0 .8.7 1.5 1.5 1.5h10.4c.8 0 1.5-.7 1.5-1.5V7.5z"/><path d="M14 3v4.5h4.7M9.4 12.4h5.2M9.4 16h5.2"/></svg>',
   openfolder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5c0-.8.7-1.5 1.5-1.5h4l2 2.5h8c.8 0 1.5.7 1.5 1.5v9c0 .8-.7 1.5-1.5 1.5H5c-.8 0-1.5-.7-1.5-1.5z"/></svg>',
   gauge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15l4-6"/><path d="M5.5 19a8.5 8.5 0 1 1 13 0"/></svg>',
@@ -1433,7 +1426,7 @@ function statusLabel(j) {
     j.status === "queued" ? t("st_queued") :
     j.status === "confirming" ? t("st_confirming") :
     j.status === "resolving" ? t("st_resolving") :
-    j.status === "running" ? Math.round(pct) + " %" : j.status;
+    j.status === "running" ? t("st_running") : j.status;
 }
 
 /* ---------- takeover confirmation (intercepted browser downloads) ---------- */
@@ -1444,7 +1437,7 @@ function notifyDone(j) {
 }
 function notifyFail(j, err) {
   if (!j) return;
-  invoke("notify", { title: t("st_failed"), body: (j.filename || "#" + j.id) + (err ? " — " + err : "") }).catch(() => {});
+  invoke("notify", { title: t("st_failed"), body: (j.filename || "#" + j.id) + (err ? ": " + err : "") }).catch(() => {});
 }
 async function confirmDelete(id) {
   const j = jobs.get(id);
@@ -1511,12 +1504,10 @@ let detailsFor = null;
 function detailSeries() {
   return jobHist.get(detailsFor) || [];
 }
-/// File badge: category colour + short extension label.
+/// File badge: short extension label.
 function icoOf(j) {
-  const c = catOf(j);
-  const col = (CATS.find(([id]) => id === c) || CATS[0])[2];
   const m = /\.([a-z0-9]+)$/i.exec(j.filename || "");
-  return { col, ch: (m ? m[1] : c).slice(0, 4).toUpperCase() };
+  return { ch: (m ? m[1] : catOf(j)).slice(0, 4).toUpperCase() };
 }
 function pctOf(j) {
   if (j.size) return Math.min(100, (j.done / j.size) * 100);
@@ -1528,9 +1519,9 @@ function pctOf(j) {
 }
 function fillColor(j) {
   return j.segs && j.status === "running" ? segGradient(j.segs, j.size)
-    : j.status === "failed" ? "#d9534f"
-    : j.status === "paused" ? "#d99a2b"
-    : j.status === "completed" ? "#57b85c" : "#57b85c";
+    : j.status === "failed" ? "var(--fill-red)"
+    : j.status === "paused" ? "var(--fill-amber)"
+    : "var(--fill-ok)";
 }
 function openDetails(id) {
   const j = jobs.get(id);
@@ -1551,29 +1542,26 @@ function openDetails(id) {
       </div>
       <div>
         <div class="dv-track"><div class="dv-fill" id="dt-fill"></div></div>
-        <div class="dv-meta-line"><span id="dt-pct">0%</span><span id="dt-done"></span></div>
+        <div class="dv-meta-line"><span id="dt-done"></span><span class="live" id="dt-live"></span></div>
       </div>
-      <div class="dv-stats">
-        <div class="dv-stat"><b id="dt-speed">—</b><small>${t("col_speed")}</small></div>
-        <div class="dv-stat"><b id="dt-eta">—</b><small>${t("col_eta")}</small></div>
-        <div class="dv-stat"><b id="dt-size">—</b><small>${t("col_size")}</small></div>
-      </div>
-      <div class="dv-stats">
-        <div class="dv-stat"><b id="dt-queue">—</b><small>${t("dlg_queue_title")}</small></div>
-        <div class="dv-stat"><b id="dt-prio">—</b><small>${t("ctx_priority")}</small></div>
-        <div class="dv-stat"><b id="dt-lim">—</b><small>${t("dlg_limit_title")}</small></div>
+      <div class="kvgrid">
+        <div class="kv"><b id="dt-size"></b><small>${t("col_size")}</small></div>
+        <div class="kv"><b id="dt-queue"></b><small>${t("dlg_queue_title")}</small></div>
+        <div class="kv"><b id="dt-prio"></b><small>${t("ctx_priority")}</small></div>
+        <div class="kv"><b id="dt-lim"></b><small>${t("dlg_limit_title")}</small></div>
       </div>
       <div class="dt-gtitle" style="margin:0">${t("speed_graph")}</div>
       <canvas class="dgraph" id="dt-graph"></canvas>
       <div class="dv-path">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5c0-.8.6-1.5 1.4-1.5H9l2 2.2h8.6c.8 0 1.4.7 1.4 1.5v8.8c0 .8-.6 1.5-1.4 1.5H4.4c-.8 0-1.4-.7-1.4-1.5z"/></svg>
         <span id="dt-file"></span>
+        <button type="button" class="dv-btn-copy" id="dt-copy">${t("btn_copy")}</button>
       </div>
       <div class="dv-sha" id="dt-sha" hidden></div>
       <div class="errline" id="dt-err"></div>
     </div>
     <div class="btns">
-      <button id="dt-folder">${t("ctx_open_folder")}</button>
+      <button id="dt-folder" class="lead">${t("ctx_open_folder")}</button>
       <button id="dt-toggle"></button>
       <button id="dt-close" class="pri">${t("btn_close")}</button>
     </div>`);
@@ -1582,6 +1570,16 @@ function openDetails(id) {
   $("dt-folder").onclick = () => {
     const jj = jobs.get(detailsFor);
     if (jj) invoke("open_path", { path: jj.out_path || "", folder: true }).catch((e) => toast(trErr(e)));
+  };
+  $("dt-copy").onclick = () => {
+    const jj = jobs.get(detailsFor);
+    if (jj && jj.out_path) {
+      navigator.clipboard?.writeText(jj.out_path).then(() => {
+        const btn = $("dt-copy");
+        btn.textContent = t("btn_copied");
+        setTimeout(() => { btn.textContent = t("btn_copy"); }, 1500);
+      }).catch(() => {});
+    }
   };
   $("dt-toggle").onclick = () => {
     const jj = jobs.get(detailsFor);
@@ -1600,17 +1598,15 @@ function updateDetails() {
   const pct = pctOf(j);
   $("dt-name").textContent = j.filename || "?";
   $("dt-name").title = j.filename || "";
-  const ico = icoOf(j);
-  $("dt-ico").style.background = ico.col;
-  $("dt-ico").textContent = ico.ch;
+  $("dt-ico").textContent = icoOf(j).ch;
   $("dt-cat").textContent = t(CATS.find(([id]) => id === catOf(j))[1]);
   const st = $("dt-st");
   st.className = "st " + j.status;
   st.textContent = statusLabel(j);
   $("dt-fill").style.width = pct + "%";
   $("dt-fill").style.background = fillColor(j);
-  $("dt-pct").textContent = pct.toFixed(0) + "%";
-  $("dt-done").textContent = fmt(j.done) + (j.size ? " / " + fmt(j.size) : "");
+  $("dt-done").textContent = fmt(j.done) + (j.size ? " / " + fmt(j.size) : "") + " (" + pct.toFixed(0) + "%)";
+  $("dt-live").textContent = j.status === "running" ? fmtSpeed(curSpeed(j)) + " · " + fmtEta(etaOf(j)) : "";
   const err = $("dt-err");
   if (j.error && (j.status === "failed" || j.status === "cancelled")) {
     err.textContent = t("error_label") + ": " + j.error;
@@ -1620,8 +1616,6 @@ function updateDetails() {
   $("dt-file").textContent = j.out_path || "-";
   $("dt-file").title = j.out_path || "";
   $("dt-size").textContent = j.size ? fmt(j.size) : "?";
-  $("dt-speed").textContent = j.status === "running" ? fmtSpeed(curSpeed(j)) : "—";
-  $("dt-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
   const pnum = typeof j.priority === "number" ? j.priority : 0;
   const plabel = pnum > 0 ? `${t("pri_high")} (+${pnum})` : pnum < 0 ? `${t("pri_low")} (${pnum})` : t("pri_normal");
   $("dt-queue").textContent = j.queue && j.queue !== "main" ? j.queue : t("queue_main");
@@ -1677,8 +1671,8 @@ function paintGraph(cv, samples) {
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   ctx.clearRect(0, 0, w, h);
   const C = document.documentElement.dataset.theme === "dark"
-    ? { grid: "#262b33", grid2: "#323844", line: "#48bb52", txt: "#9aa2b0" }
-    : { grid: "#ebe8dc", grid2: "#dad6c6", line: "#2e8b30", txt: "#7a7a7a" };
+    ? { grid: "#2b2f37", grid2: "#3c414d", line: "#4fae60", txt: "#9aa2ad" }
+    : { grid: "#e8eaee", grid2: "#d3d7dd", line: "#268a3c", txt: "#5d6470" };
   const vals = samples.map((s) => s.v);
   const max = Math.max(1024, ...vals) * 1.15;
   ctx.strokeStyle = C.grid;
@@ -1728,11 +1722,11 @@ function paintGraph(cv, samples) {
       ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
       const grad = ctx.createLinearGradient(0, 0, 0, h);
       if (document.documentElement.dataset.theme === "dark") {
-        grad.addColorStop(0, "rgba(72,187,82,.35)");
-        grad.addColorStop(1, "rgba(72,187,82,.03)");
+        grad.addColorStop(0, "rgba(79,174,96,.32)");
+        grad.addColorStop(1, "rgba(79,174,96,.03)");
       } else {
-        grad.addColorStop(0, "rgba(46,139,48,.30)");
-        grad.addColorStop(1, "rgba(46,139,48,.03)");
+        grad.addColorStop(0, "rgba(47,158,68,.28)");
+        grad.addColorStop(1, "rgba(47,158,68,.03)");
       }
       ctx.fillStyle = grad;
       ctx.fill();
@@ -1856,16 +1850,16 @@ function initDetailWindow() {
       <div class="dv-track"><div class="dv-fill" id="dc-fill"></div></div>
       <div class="dv-meta-line"><span id="dc-pct">0%</span><span id="dc-done"></span></div>
     </div>
-    <div class="dv-stats">
-      <div class="dv-stat"><b id="dc-speed">—</b><small data-i18n="col_speed">Speed</small></div>
-      <div class="dv-stat"><b id="dc-eta">—</b><small data-i18n="col_eta">Time left</small></div>
-      <div class="dv-stat"><b id="dc-size">—</b><small data-i18n="col_size">Size</small></div>
+    <div class="kvgrid c3">
+      <div class="kv"><b id="dc-speed"></b><small data-i18n="col_speed">Speed</small></div>
+      <div class="kv"><b id="dc-eta"></b><small data-i18n="col_eta">Time left</small></div>
+      <div class="kv"><b id="dc-size"></b><small data-i18n="col_size">Size</small></div>
     </div>
     <canvas class="dc-graph" id="dc-graph"></canvas>
     <div class="dv-path">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5c0-.8.6-1.5 1.4-1.5H9l2 2.2h8.6c.8 0 1.4.7 1.4 1.5v8.8c0 .8-.6 1.5-1.4 1.5H4.4c-.8 0-1.4-.7-1.4-1.5z"/></svg>
       <span id="dc-file"></span>
-      <button class="dv-btn-copy" id="dc-copy-path" title="Copy file path">Copy</button>
+      <button class="dv-btn-copy" id="dc-copy-path" data-i18n="btn_copy" data-i18n-title="btn_copy" title="Copy">Copy</button>
     </div>
     <div class="dc-err" id="dc-err"></div>
     <div class="dc-actions">
@@ -1886,9 +1880,8 @@ function initDetailWindow() {
       navigator.clipboard.writeText(j.out_path).then(() => {
         const btn = $("dc-copy-path");
         if (btn) {
-          const old = btn.textContent;
-          btn.textContent = "Copied!";
-          setTimeout(() => { btn.textContent = old; }, 1500);
+          btn.textContent = t("btn_copied");
+          setTimeout(() => { btn.textContent = t("btn_copy"); }, 1500);
         }
       }).catch(() => {});
     }
@@ -1929,9 +1922,7 @@ function renderDetailCard() {
   if (!j) return;
   $("dc-name").textContent = j.filename || "…";
   $("dc-name").title = j.filename || "";
-  const ico = icoOf(j);
-  $("dc-ico").style.background = ico.col;
-  $("dc-ico").textContent = ico.ch;
+  $("dc-ico").textContent = icoOf(j).ch;
   $("dc-cat").textContent = t(CATS.find(([id]) => id === catOf(j))[1]);
   const st = $("dc-st");
   st.className = "st " + j.status;
@@ -1945,8 +1936,8 @@ function renderDetailCard() {
   $("dc-pct").textContent = pct.toFixed(0) + "%";
   $("dc-done").textContent = fmt(j.done) + (sz ? " / " + (j.size ? fmt(j.size) : "~" + fmt(sz)) : "");
   $("dc-size").textContent = sz ? (j.size ? fmt(j.size) : "~" + fmt(sz)) : "?";
-  $("dc-speed").textContent = j.status === "running" ? fmtSpeed(curSpeed(j)) : "—";
-  $("dc-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "—";
+  $("dc-speed").textContent = j.status === "running" ? fmtSpeed(curSpeed(j)) : "";
+  $("dc-eta").textContent = j.status === "running" ? fmtEta(etaOf(j)) : "";
   $("dc-file").textContent = j.out_path || "-";
   $("dc-file").title = j.out_path || "";
   const err = $("dc-err");
@@ -2062,7 +2053,7 @@ $("b-add").onclick = () => {
     const heights = [...new Set(fmts.map((f) => f.height))].sort((a, b) => b - a);
     const opts = heights.map((h) => {
       const f = fmts.find((x) => x.height === h);
-      const sz = f && f.filesize ? " — " + fmt(f.filesize) : "";
+      const sz = f && f.filesize ? " (" + fmt(f.filesize) + ")" : "";
       return `<option value="${h}">${h}p${sz}</option>`;
     }).join("");
     const hasAudio = (m.formats || []).some((f) => f.acodec !== "none");
@@ -2171,7 +2162,6 @@ function openQueueDlg(id) {
   const qs = queueCounts();
   const custom = [...qs.keys()].filter((q) => q !== "main").sort((a, b) => a.localeCompare(b));
   const row = (q, label) => `<button type="button" class="qopt${cur === q ? " cur" : ""}" data-q="${esc(q)}">
-      <span class="ic" style="background:${q === "main" ? "var(--dim)" : queueColor(q)}"></span>
       <span class="nm">${esc(label)}</span>
       <span class="cnt">${qs.get(q) || 0}</span>
       <svg class="ck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>
@@ -2263,15 +2253,15 @@ const FTYPES = [
 ];
 const EXT2CAT = new Map(FTYPES.flatMap(([id, , str]) => str.split(" ").map((x) => [x, id])));
 // folder-category keys must match rdm_core::category_of (settings.categories);
-// distinct from the sidebar CATS above (list filters). [id, i18n key, dot color]
+// distinct from the sidebar CATS above (list filters). [id, i18n key]
 const FOLDER_CATS = [
-  ["videos", "ft_videos", "#d05050"],
-  ["audio", "ft_audio", "#b05bb0"],
-  ["images", "ft_images", "#3f9dbd"],
-  ["documents", "ft_docs", "#5a7fbf"],
-  ["apps", "ft_apps", "#5d5d5d"],
-  ["archives", "ft_arch", "#c9962e"],
-  ["others", "ft_others", "#8b8e93"],
+  ["videos", "ft_videos"],
+  ["audio", "ft_audio"],
+  ["images", "ft_images"],
+  ["documents", "ft_docs"],
+  ["apps", "ft_apps"],
+  ["archives", "ft_arch"],
+  ["others", "ft_others"],
 ];
 
 $("b-options").onclick = async () => {
@@ -2297,17 +2287,20 @@ $("b-options").onclick = async () => {
     </div>
     <div class="dlgbody">
     <div class="tabpane on" id="p-dl" role="tabpanel">
-    <div class="fld"><label for="o-dir">${t("fld_dir")}</label>
+    <div class="fgrp">
+      <label for="o-dir">${t("fld_dir")}</label>
       <div class="fldpath">
         <input id="o-dir" value="${esc(s.dir || "")}" placeholder="${esc(t("ph_dir"))}" spellcheck="false">
         <button type="button" id="o-browse" title="${t("btn_browse")}" aria-label="${t("btn_browse")}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.3c0-.7.6-1.3 1.3-1.3h4l2 2.2h8.4c.7 0 1.3.6 1.3 1.3v8.2c0 .7-.6 1.3-1.3 1.3H4.8c-.7 0-1.3-.6-1.3-1.3z"/><path d="M3.5 19h12.2l4.8-8.4"/></svg></button>
-      </div></div>
-    <div class="nums">
-      <label class="cfld"><span>${t("fld_segments")}</span><input id="o-seg" type="number" min="1" max="32" value="${s.segments || 8}"></label>
-      <label class="cfld"><span>${t("fld_parallel")}</span><input id="o-par" type="number" min="1" max="16" value="${s.max_parallel || 3}"></label>
-      <label class="cfld"><span>${t("fld_speed")} (KiB/s)</span><input id="o-speed" type="number" min="0" step="64" value="${s.speed_limit || 0}"></label>
+      </div>
     </div>
-    <div class="fld"><label for="o-dns">${t("fld_dns")}</label>
+    <div class="frow c3">
+      <label class="fgrp"><span>${t("fld_segments")}</span><input id="o-seg" type="number" min="1" max="32" value="${s.segments || 8}"></label>
+      <label class="fgrp"><span>${t("fld_parallel")}</span><input id="o-par" type="number" min="1" max="16" value="${s.max_parallel || 3}"></label>
+      <label class="fgrp"><span>${t("fld_speed")} (KiB/s)</span><input id="o-speed" type="number" min="0" step="64" value="${s.speed_limit || 0}"></label>
+    </div>
+    <div class="fgrp">
+      <label for="o-dns">${t("fld_dns")}</label>
       <div class="dnsgrp${s.dns_mode === "custom" ? " custom" : ""}" id="o-dns-grp">
         <select id="o-dns">
           <option value="cloudflare"${(s.dns_mode || "cloudflare") === "cloudflare" ? " selected" : ""}>${t("opt_dns_cf")}</option>
@@ -2324,21 +2317,28 @@ $("b-options").onclick = async () => {
     <div id="ovadd"></div>
     </div>
     <div class="tabpane" id="p-br" role="tabpanel">
-    <div class="fld"><label>${t("fld_ftype")}</label>
+    <div class="fgrp">
+      <span>${t("fld_ftype")}</span>
       <div class="ftypes${allOn ? " all" : ""}" id="ft-box">
         <label class="fchk"><input type="checkbox" id="ft-all"${allOn ? " checked" : ""}><span>${t("ft_all")}</span></label>
         ${FTYPES.map(([id, key, str]) => `<label class="fchk"><input type="checkbox" id="ft-${id}"${str.split(" ").every((x) => list.includes(x)) ? " checked" : ""}${allOn ? " disabled" : ""}><span>${t(key)}</span></label>`).join("")}
-      </div></div>
-    <div class="fld"><label for="o-int">${t("fld_extra")}</label><input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc(extras)}" spellcheck="false" autocomplete="off"></div>
+      </div>
+    </div>
+    <div class="fgrp">
+      <label for="o-int">${t("fld_extra")}</label>
+      <input id="o-int" placeholder="${esc(t("ph_intercept"))}" value="${esc(extras)}" spellcheck="false" autocomplete="off">
+    </div>
     </div>
     <div class="tabpane" id="p-ui" role="tabpanel">
-    <div class="fld"><label for="o-lang">${t("fld_lang")}</label><select id="o-lang">
-      <option value="en"${lang === "en" ? " selected" : ""}>English</option>
-      <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></div>
-    <div class="fld"><label for="o-theme">${t("fld_theme")}</label><select id="o-theme">
-      <option value="system"${(localStorage.rdm_theme || "system") === "system" ? " selected" : ""}>${t("opt_system")}</option>
-      <option value="light"${localStorage.rdm_theme === "light" ? " selected" : ""}>${t("opt_light")}</option>
-      <option value="dark"${localStorage.rdm_theme === "dark" ? " selected" : ""}>${t("opt_dark")}</option></select></div>
+    <div class="frow c2">
+      <label class="fgrp"><span>${t("fld_lang")}</span><select id="o-lang">
+        <option value="en"${lang === "en" ? " selected" : ""}>English</option>
+        <option value="id"${lang === "id" ? " selected" : ""}>Indonesia</option></select></label>
+      <label class="fgrp"><span>${t("fld_theme")}</span><select id="o-theme">
+        <option value="system"${(localStorage.rdm_theme || "system") === "system" ? " selected" : ""}>${t("opt_system")}</option>
+        <option value="light"${localStorage.rdm_theme === "light" ? " selected" : ""}>${t("opt_light")}</option>
+        <option value="dark"${localStorage.rdm_theme === "dark" ? " selected" : ""}>${t("opt_dark")}</option></select></label>
+    </div>
     <div class="sec">${t("sec_behavior")}</div>
     <label class="tgl"><span>${t("fld_autostart")}</span><input id="o-auto" type="checkbox"${auto ? " checked" : ""}></label>
     <label class="tgl"><span>${t("fld_notify")}</span><input id="o-notify" type="checkbox"${s.notify !== false ? " checked" : ""}></label>
@@ -2365,8 +2365,8 @@ $("b-options").onclick = async () => {
     } catch {}
   };
   const renderOv = () => {
-    $("ovlist").innerHTML = FOLDER_CATS.filter(([id]) => id in catdirs).map(([id, key, col]) => `
-      <div class="ovrow"><i style="background:${col}"></i><span>${t(key)}</span>
+    $("ovlist").innerHTML = FOLDER_CATS.filter(([id]) => id in catdirs).map(([id, key]) => `
+      <div class="ovrow"><span>${t(key)}</span>
         <input class="ovin" data-id="${id}" value="${esc(catdirs[id])}" placeholder="${esc(t("ph_cat_dir"))}" spellcheck="false" autocomplete="off">
         <button type="button" class="ovdel" data-id="${id}" title="${t("btn_remove")}">✕</button></div>`).join("");
     $("ovlist").querySelectorAll(".ovin").forEach((inp) => {
