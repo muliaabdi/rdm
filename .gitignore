@@ -3,3 +3,4 @@ target/
 *.tmp
 nohup.out
 AGENTS.md
+.superpowers/
