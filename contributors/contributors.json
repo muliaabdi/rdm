@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "generatedAt": "2026-11-01T00:00:00Z",
+  "contributors": [
+    {
+      "name": "Mulia Abdi",
+      "github": "muliaabdi",
+      "commits": 15,
+      "repos": [
+        "rdm"
+      ],
+      "roles": ["maintainer", "developer"]
+    }
+  ]
+}
