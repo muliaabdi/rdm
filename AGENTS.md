@@ -117,3 +117,12 @@ People trust RDM dengan numbers mereka; crash loses their work. Ini outranks fea
 - **Time goes through** `chrono` (workspace dependency). Never hand-roll UTC/calendar conversion (days-to-date algorithms, leap-year math). Crate owns hanya output format string. One exception adalah range extension: past years chrono can represent, shift date oleh whole 400-year Gregorian cycles (146,097 days, after which calendar repeats), let chrono compute month dan day, dan add cycles back ke year (splitting seconds ke hours, minutes dan seconds adalah plain arithmetic).
 - **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
 - **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layers, wasm). One task id per commit (`M2.1: borders gallery`).
+
+## Session Start Protocol
+
+Start every session di sini:
+
+1. Read `plan/STATUS.md` (current milestone, next task), then task di `plan/execution-plan.md` dan relevant `plan/architecture.md` section.
+2. Ikuti autonomous operation protocol (jika ada di `plan/execution-plan.md` §7). Jangan stop untuk bertanya kecuali §7 mencantumkan keputusan sebagai task user.
+
+`plan/` is gitignored (local only).
