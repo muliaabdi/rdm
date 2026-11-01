@@ -86,3 +86,9 @@ Tag `v0.1.0` after CI lands.
 
 Backlog: tray speed toggle, clipboard import, auto-retry, missing-file badge,
 batch add, named queues/scheduler.
+
+## Clean-Room
+
+Tidak copy code dari IDM (Internet Download Manager). Hanya observasi black-box: run aplikasi, gunakan UI dengan synthetic workbooks, ambil screenshot (by window id) stored hanya di `plan/excel/screenshots/`. Tidak baca, disassemble, atau copy apa pun di dalam Office bundle, tidak commit files produced oleh Excel, tidak copy GPL/AGPL/LGPL code (LibreOffice, Gnumeric…). Function behaviour comes dari public documentation dan observation.
+
+Dokumentasi feature parity dengan IDM (daftar fitur yang sudah ada vs belum) di `docs/feature-parity.md`.
