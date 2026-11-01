@@ -92,3 +92,28 @@ batch add, named queues/scheduler.
 Tidak copy code dari IDM (Internet Download Manager). Hanya observasi black-box: run aplikasi, gunakan UI dengan synthetic workbooks, ambil screenshot (by window id) stored hanya di `plan/excel/screenshots/`. Tidak baca, disassemble, atau copy apa pun di dalam Office bundle, tidak commit files produced oleh Excel, tidak copy GPL/AGPL/LGPL code (LibreOffice, Gnumeric…). Function behaviour comes dari public documentation dan observation.
 
 Dokumentasi feature parity dengan IDM (daftar fitur yang sudah ada vs belum) di `docs/feature-parity.md`.
+
+## Never-Crash
+
+People trust RDM dengan numbers mereka; crash loses their work. Ini outranks feature work.
+
+- **No panics in non-test code:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`, `unsafe`
+- **Errors are `Result<T, E>`** through crate's error type dan `?`
+- **Input-derived numbers are hostile** (files, formulas, commands, MCP/control params): validate indexes dan ranges sebelum access, use checked access when validity is not established, use checked/saturating arithmetic, cap input-sized allocations (huge ranges, `REPT`, `SEQUENCE`, whole-column references).
+- **Bound recursion** (formula nesting, dependency chains).
+- **Last-resort guard:** Session::execute catches escaped panics dan restores workbook. Ini safety net, bukan lisensi.
+- **Prove it:** every crash fix lands dengan regression test (`tests::every_command_survives_empty_params` fuzzes every command; `crates/engine/tests/it/command_sequence_fuzz.rs` fuzzes random command sequences against undo/redo, XLSX round-trip dan full-recalc invariants; soak dengan `GRIDCRAFT_FUZZ_SEEDS`/`GRIDCRAFT_FUZZ_STEPS`, replay dengan `GRIDCRAFT_FUZZ_SEED`).
+- **Crates carry** `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`.
+
+## Non-Negotiables
+
+- **Clean-room.** Tidak copy code dari IDM, hanya observasi black-box: run Excel, gunakan UI dengan synthetic workbooks, ambil screenshot (by window id) stored hanya di `plan/excel/screenshots/`. Tidak baca, disassemble, atau copy apa pun di dalam Office bundle, tidak commit files produced oleh Excel, tidak copy GPL/AGPL/LGPL code (LibreOffice, Gnumeric…). Function behaviour comes dari public documentation dan observation.
+- **Fonts live di** [`storytold/craft-fonts`](https://github.com/storytold/craft-fonts), never di repo ini. Ini optional build input (`CRAFT_FONTS_DIR`); tanpa ini app uses system fonts dan egui's defaults.
+- **Test corpora** (real Excel-authored files) live di repo terpisah, fetched pinned dan sha256-verified. Never commit large binary fixtures; build test workbooks in code.
+- **Everything is a command.** User-visible behaviour = command di `crates/engine/src/cmd/*` (id, label, ribbon path, shortcut, params doc, `enabled`, `run`) + tests. Ids follow Excel's ribbon (`home.bold`, `insert.chart`, `data.sortAscending`) plus primitives (`cell.set`, `selection.set`, `range.setValues`). UI-only commands live di `crates/ui-egui`. Control channel, CLI dan MCP reach semua command.
+- **Programmatic calls never open dialogs:** command dengan empty params runs dengan defaults atau returns error; hanya menu-style invocation opens dialog (`UiRequest::Dialog`).
+- **Layering** is enforced oleh `cargo xtask layers`: `core`/`numfmt` (L0) → `formula`/`functions` (L1) → `model`/`calc`/`xlsx` (L2) → `chart` (L3) → `engine` (L5) → `ui-egui`/`mcp` (L6) → `apps/*` (L7). Nothing below L6 depends pada egui/eframe/winit/rfd. **The UI crate is swappable.**
+- **The UI is thin:** panels read engine state dan act through `app.run(id, params)`. Colours come dari `theme::Tokens`.
+- **Time goes through** `chrono` (workspace dependency). Never hand-roll UTC/calendar conversion (days-to-date algorithms, leap-year math). Crate owns hanya output format string. One exception adalah range extension: past years chrono can represent, shift date oleh whole 400-year Gregorian cycles (146,097 days, after which calendar repeats), let chrono compute month dan day, dan add cycles back ke year (splitting seconds ke hours, minutes dan seconds adalah plain arithmetic).
+- **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
+- **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layers, wasm). One task id per commit (`M2.1: borders gallery`).
