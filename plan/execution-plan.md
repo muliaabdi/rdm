@@ -2,63 +2,31 @@
 
 ## Overview
 
-Daftar task terstruktur untuk development RDM (Rust Download Manager) dengan prioritas jelas.
+Rencana eksekusi turun dari `plan/STATUS.md` (milestone aktif) dan
+`docs/gaps.md` (backlog + detail fitur). File ini hanya daftar task berjalan —
+jangan duplikasi isi gaps.md.
 
-## High Priority Tasks
+## Task Berjalan (2026-11-05)
 
-### Tray Speed Toggle
-- Add speed indicator to system tray icon
-- Add context menu item to show/hide speed
-- Add keyboard shortcut (Ctrl+Shift+S)
-- Test with multiple concurrent downloads
+### Struktur — SELESAI
+1. ~~Bersih AGENTS.md dari kontaminasi GridCraft~~ ✅
+2. ~~Sinkron STATUS/gaps/feature-parity dengan realita kode~~ ✅
+3. ~~Split `crates/rdm-daemon/src/lib.rs` → modul~~ ✅
+   (`settings`/`protocol`/`jobs`/`runners`/`uilaunch`; lib.rs 2291→372 baris;
+   fmt+clippy+34 test hijau, daemon sudah direstart)
+4. ~~Split `ui/index.html` single script → 5 file JS~~ ✅
+   (`app-core`/`state`/`render`/`daemon-events`/`dialogs`; index.html
+   2508→689 baris; verified di browser: render identik, dialog jalan,
+   0 console error)
 
-### Clipboard Import
-- Add "Paste URL from clipboard" button in main UI
-- Add keyboard shortcut (Ctrl+V)
-- Parse various URL formats (YouTube, direct links, etc.)
-- Test with different clipboard contents
+### Berikutnya (fitur)
+5. Batch add (dialog + `rdm add -`)
+6. yt-dlp playlist support
 
-### Auto-Retry
-- Add retry count to job metadata
-- Auto-retry failed downloads up to N times
-- Configurable retry delay
-- Test with network failures
+## Autonomous Operation Protocol
 
-## Medium Priority Tasks
-
-### Missing-File Badge
-- Show badge on job card when file is missing
-- Add "Locate file" button
-- Scan download directory for missing files
-- Test with partial downloads
-
-### Batch Add
-- Add "Add multiple URLs" dialog
-- Support CSV/JSON input
-- Parse and validate URLs
-- Test with 10+ URLs
-
-## Low Priority Tasks
-
-### Named Queues/Scheduler
-- Add queue creation dialog
-- Assign jobs to queues
-- Schedule queue execution (time-based)
-- Test with multiple queues
-
-## Task Dependencies
-
-- Tray speed toggle → independent
-- Clipboard import → independent
-- Auto-retry → independent
-- Missing-file badge → independent
-- Batch add → independent
-- Named queues/scheduler → independent
-
-## Success Criteria
-
-- All high priority tasks completed
-- All tests passing
-- Manual testing completed
-- Documentation updated
-- No breaking changes to existing functionality
+- Kerjakan task berurutan sesuai daftar di atas.
+- Jangan stop untuk bertanya kecuali: pilihan yang mengubah perilaku user-facing,
+  keputusan keamanan, atau destructive action di luar repo ini.
+- Setiap task selesai: update file ini + `plan/STATUS.md`, commit dengan pesan
+  konvensional.
