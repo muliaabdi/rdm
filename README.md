@@ -69,11 +69,23 @@ ext/chrome    browser extension (MV3, no build step)
 
 User data lives in `~/.local/share/rdm/` (`rdm.db`, `settings.json`).
 
-## Install
+## Installation (Linux)
+
+### Recommended: One-line install (Prebuilt)
+
+No Rust compiler required:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/muliaabdi/rdm/main/scripts/install.sh)
+```
+
+### Build from source
 
 Requirements: Rust (stable), GTK/webkit2gtk-4.1 (Tauri), `ffmpeg`, `yt-dlp`.
 
 ```sh
+git clone https://github.com/muliaabdi/rdm.git
+cd rdm
 ./install.sh            # release build + ~/.local/bin + systemd + .desktop
 ```
 
