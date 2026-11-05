@@ -15,22 +15,11 @@ langsung dari kode (bukan asumsi). Terakhir diperbarui 2026-11-05.
 | Tray speed display + submenu limit | `update_tray_jobs`, `tray_fmt_bps` di `rdm-ui` |
 | Named queues + priority | DB v0.8 (`queue`, priority), queue picker di UI |
 | Batch add (UI dialog + `rdm add -`) | `dialogs.js` (textarea multi-baris), `rdm-cli/src/client.rs` |
-
-## High Priority
-
-### 1. yt-dlp Playlist Support
-**Deskripsi:** URL playlist → satu job per entry (loop `--flat-playlist`).
-
-**Fitur:**
-- Detect playlist vs single video
-- Konfirmasi jumlah entry sebelum enqueue
-- `--no-playlist` tetap default untuk URL single-video
-
-**Status:** Pending (`ytdlp.rs` memakai `--no-playlist`)
+| yt-dlp playlist support | `ytdlp.rs` (`extract_playlist`, `--flat-playlist`), modal konfirmasi & batch queue |
 
 ## Medium Priority
 
-### 2. Time-Based Scheduler
+### 1. Time-Based Scheduler
 **Deskripsi:** Queue start/stop pada jam tertentu (seperti IDM scheduler).
 
 **Status:** Pending (priority ordering sudah ada; hanya trigger waktu yang belum)
@@ -54,8 +43,12 @@ messaging host manifest + background).
 Playlist → independent. Scheduler → bergantung pada named queues (sudah
 selesai). Semua lainnya independent.
 
-## Catatan implementasi batch add (2026-11-05)
+## Catatan implementasi batch add & playlist (2026-11-05)
 
+- Playlist: `ytdlp::looks_like_playlist` mendeteksi param/path playlist,
+  `ytdlp::extract_playlist` memakai `--flat-playlist -J` untuk parsing cepat
+  indeks video tanpa query format video per item; UI menampilkan modal
+  konfirmasi jumlah item dan pilihan resolusi/audio, lalu enqueue satu per satu.
 - UI: dialog Add pakai `<textarea>`; multi-baris = batch (dedupe, skip `#`
   dan non-http, hint jumlah tautan, Detect disembunyikan). Enter submit hanya
   saat single-line.

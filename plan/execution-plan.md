@@ -21,7 +21,9 @@ jangan duplikasi isi gaps.md.
 ### Berikutnya (fitur)
 5. ~~Batch add (dialog + `rdm add -`)~~ ✅ (2026-11-05: UI textarea
    multi-baris; CLI rewrite jadi klien daemon penuh; 4 test + smoke live)
-6. yt-dlp playlist support
+6. ~~yt-dlp playlist support~~ ✅ (2026-11-05: `--flat-playlist`, URL
+   normalization, dedupe, modal konfirmasi, batch queue; 3 unit test + browser verified)
+7. Time-based scheduler
 
 ## Autonomous Operation Protocol
 

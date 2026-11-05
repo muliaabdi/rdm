@@ -223,6 +223,32 @@ async fn handle_line(app: Arc<App>, line: &str) -> Result<Option<String>> {
             let url = v["url"].as_str().context("url required")?.to_string();
             let cookie = v["cookie"].as_str().map(str::to_string);
             let ua = v["ua"].as_str().map(str::to_string);
+
+            // playlist check first: if the URL looks like a playlist, try flat
+            // extraction so the UI can offer "Download N videos from playlist"
+            if ytdlp::looks_like_playlist(&url) {
+                if let Ok(Ok((title, entries))) = tokio::time::timeout(
+                    Duration::from_secs(60),
+                    ytdlp::extract_playlist(&url, cookie.as_deref(), ua.as_deref()),
+                )
+                .await
+                {
+                    if !entries.is_empty() {
+                        return Ok(Some(
+                            json!({
+                                "t": "formats",
+                                "url": url,
+                                "title": title,
+                                "playlist": true,
+                                "entries": entries,
+                                "formats": [],
+                            })
+                            .to_string(),
+                        ));
+                    }
+                }
+            }
+
             let media = tokio::time::timeout(
                 Duration::from_secs(120),
                 ytdlp::extract(&url, cookie.as_deref(), ua.as_deref()),

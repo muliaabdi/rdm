@@ -70,6 +70,34 @@ $("b-add").onclick = () => {
   refreshHint();
 
   const renderQuality = (m) => {
+    if (m.playlist) {
+      const entries = m.entries || [];
+      const n = entries.length;
+      openModal(`<h3>${t("dlg_playlist_title")}</h3>
+        <div class="mhint">${esc(m.title || "")} (${t("playlist_n_items", { n })})</div>
+        <select id="m-q">
+          <option value="1080">${t("opt_playlist_best", { n })}</option>
+          <option value="720">720p (${n} items)</option>
+          <option value="audio">${t("opt_audio")} (${n} items)</option>
+        </select>
+        <div class="btns"><button id="m-qcancel">${t("btn_cancel")}</button><button id="m-qok" class="pri">${t("btn_download")}</button></div>`);
+      $("m-qcancel").onclick = closeModal;
+      $("m-qok").onclick = async () => {
+        const val = $("m-q").value;
+        const audio = val === "audio";
+        const h = audio ? 0 : Number(val) || 1080;
+        let ok = 0;
+        for (const e of entries) {
+          try {
+            await invoke("add_page", { url: e.url, height: h, audioOnly: audio });
+            ok++;
+          } catch (err) { toast(trErr(err)); }
+        }
+        if (ok > 0) toast(t("playlist_queued", { n: ok }));
+        closeModal();
+      };
+      return;
+    }
     if (m.gallery) {
       // picture gallery (gallery-dl): one choice — take every file
       openModal(`<h3>${t("dlg_quality_title")}</h3>

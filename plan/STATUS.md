@@ -16,23 +16,22 @@
 - Batch add live: dialog Add terima multi-baris (dedupe + validasi) dan
   `rdm add -` dari stdin; CLI kini klien daemon penuh
   (add/list/pause/resume/restart/delete)
+- yt-dlp playlist support live: flat-playlist detection & extraction,
+  modal konfirmasi jumlah item + resolusi/audio, batch enqueue
 
 ## Next Task
 
-**yt-dlp playlist support** — URL playlist → satu job per entry.
+**Time-based scheduler** — queue start/stop pada jam tertentu.
 
 ## Backlog Priorities
 
-### High Priority
-1. yt-dlp playlist support (satu URL → banyak job)
-
 ### Medium Priority
-2. Time-based scheduler (queue start/stop pada jam tertentu)
-3. Firefox extension port (WebExtension dari basis MV3)
+1. Time-based scheduler (queue start/stop pada jam tertentu)
+2. Firefox extension port (WebExtension dari basis MV3)
 
 ### Low Priority
-4. Search/filter job list
-5. Multi-source/mirror per job
+3. Search/filter job list
+4. Multi-source/mirror per job
 
 ## Catatan
 

@@ -372,6 +372,102 @@ async fn extract_once(
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistEntry {
+    pub url: String,
+    pub title: Option<String>,
+    pub id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawPlaylistEntry {
+    url: Option<String>,
+    id: Option<String>,
+    title: Option<String>,
+    ie_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawPlaylist {
+    _type: Option<String>,
+    title: Option<String>,
+    #[serde(default)]
+    entries: Vec<Option<RawPlaylistEntry>>,
+}
+
+/// Parse yt-dlp `--flat-playlist -J` output. Returns (title, entries).
+/// Rejects non-playlist JSON (`_type != "playlist"`). Normalizes bare
+/// video IDs (YouTube "dQw4w9WgXcQ" -> full URL) and dedupes by URL.
+pub fn parse_playlist_json(json_str: &str) -> Result<(String, Vec<PlaylistEntry>)> {
+    let raw: RawPlaylist = serde_json::from_str(json_str).context("parse playlist json")?;
+    if raw._type.as_deref() != Some("playlist") {
+        bail!("not a playlist");
+    }
+    let title = raw.title.unwrap_or_else(|| "playlist".into());
+    let mut out: Vec<PlaylistEntry> = Vec::new();
+    for entry in raw.entries.into_iter().flatten() {
+        let (raw_url, id, t) = (entry.url, entry.id, entry.title);
+        let Some(u) = raw_url.or_else(|| id.clone()) else {
+            continue;
+        };
+        // normalize: YouTube bare IDs (or ie_key=Youtube) become watch URLs
+        let norm = if u.starts_with("http://") || u.starts_with("https://") {
+            u
+        } else if entry.ie_key.as_deref() == Some("Youtube")
+            || (u.len() == 11
+                && u.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        {
+            format!("https://www.youtube.com/watch?v={u}")
+        } else {
+            // skip bare non-URL strings that don't look like YouTube IDs
+            continue;
+        };
+        if !out.iter().any(|e| e.url == norm) {
+            out.push(PlaylistEntry {
+                url: norm,
+                title: t,
+                id,
+            });
+        }
+    }
+    Ok((title, out))
+}
+
+/// Quick check whether a URL targets a playlist. Fast: looks for common
+/// query params (`list=`, `/playlist/`, `/album/`) before invoking yt-dlp.
+pub fn looks_like_playlist(url: &str) -> bool {
+    let u = url.to_ascii_lowercase();
+    u.contains("list=") || u.contains("/playlist") || u.contains("/sets/") || u.contains("/album/")
+}
+
+/// Extract playlist entries using `--flat-playlist` (very fast: does not
+/// probe formats for every video, just reads the list index).
+pub async fn extract_playlist(
+    page_url: &str,
+    cookie: Option<&str>,
+    ua: Option<&str>,
+) -> Result<(String, Vec<PlaylistEntry>)> {
+    let mut args: Vec<String> = vec![
+        "-J".into(),
+        "--flat-playlist".into(),
+        "--force-ipv4".into(),
+        page_url.into(),
+    ];
+    let cfile = cookie.and_then(|c| write_cookie_file(page_url, c));
+    if let Some(f) = &cfile {
+        args.push("--cookies".into());
+        args.push(f.0.to_string_lossy().into_owned());
+    }
+    if let Some(u) = ua {
+        args.push("--user-agent".into());
+        args.push(u.into());
+    }
+    let argrefs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let out = run_ytdlp(&argrefs, Duration::from_secs(60)).await?;
+    parse_playlist_json(out.trim())
+}
+
 /// Pick best (video, Option<audio>) pair under `max_height`.
 pub fn pick(info: &ExtractInfo, max_height: u64, audio_only: bool) -> (Fmt, Option<Fmt>) {
     let audio_best = || {
@@ -422,5 +518,53 @@ pub fn pick(info: &ExtractInfo, max_height: u64, audio_only: bool) -> (Fmt, Opti
                 .unwrap_or_else(|| info.formats[0].clone());
             (v, if audio_only { None } else { audio_best() })
         }
+    }
+}
+
+#[cfg(test)]
+mod playlist_tests {
+    use super::*;
+
+    const FIX: &str = r#"{
+        "_type": "playlist",
+        "title": "My List",
+        "webpage_url": "https://www.youtube.com/playlist?list=PLx",
+        "entries": [
+            {"_type": "url", "ie_key": "Youtube", "id": "dQw4w9WgXcQ", "url": "dQw4w9WgXcQ", "title": "Video A"},
+            {"_type": "url", "url": "https://vimeo.com/12345", "title": "Video B"},
+            {"_type": "url", "id": "junk", "url": "not-a-url", "title": "skip"},
+            {"_type": "url", "url": "https://vimeo.com/12345", "title": "dupe"},
+            {"_type": "url", "url": "dQw4w9WgXcQ", "title": "dupe id"}
+        ]
+    }"#;
+
+    #[test]
+    fn parses_flat_playlist_normalizes_ids_and_dedupes() {
+        let (title, entries) = parse_playlist_json(FIX).unwrap();
+        assert_eq!(title, "My List");
+        let urls: Vec<&str> = entries.iter().map(|e| e.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            vec![
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "https://vimeo.com/12345",
+            ]
+        );
+        assert_eq!(entries[0].title.as_deref(), Some("Video A"));
+    }
+
+    #[test]
+    fn rejects_non_playlist_json() {
+        let single = r#"{"_type":"video","title":"solo","formats":[]}"#;
+        assert!(parse_playlist_json(single).is_err());
+        assert!(parse_playlist_json("null").is_err());
+    }
+
+    #[test]
+    fn empty_playlist_is_ok_but_empty() {
+        let empty = r#"{"_type":"playlist","title":"E","entries":[]}"#;
+        let (t, e) = parse_playlist_json(empty).unwrap();
+        assert_eq!(t, "E");
+        assert!(e.is_empty());
     }
 }
