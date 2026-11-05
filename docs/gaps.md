@@ -2,109 +2,63 @@
 
 ## Overview
 
-Daftar backlog RDM (Rust Download Manager) terurut prioritas.
+Daftar backlog RDM (Rust Download Manager) terurut prioritas. Status diverifikasi
+langsung dari kode (bukan asumsi). Terakhir diperbarui 2026-11-05.
+
+## Sudah Selesai (dihapus dari backlog)
+
+| Fitur | Bukti di kode |
+|---|---|
+| Auto-retry 3x backoff | `rdm-daemon/src/lib.rs` (`AUTO_RETRY_MAX`, status `retrying`) |
+| Clipboard import (offer card) | `clipboard_watch` di settings + offer card di UI |
+| Missing-file badge | `j.missing` + `.st.missing` di UI, cek `out_path` di daemon |
+| Tray speed display + submenu limit | `update_tray_jobs`, `tray_fmt_bps` di `rdm-ui` |
+| Named queues + priority | DB v0.8 (`queue`, priority), queue picker di UI |
 
 ## High Priority
 
-### 1. Tray Speed Toggle
-**Deskripsi:** Add ability to show/hide current speed indicator di system tray icon, toggle via right-click context menu atau keyboard shortcut.
+### 1. Batch Add
+**Deskripsi:** Dialog "Add multiple URLs" + CLI stdin (`rdm add -`).
 
 **Fitur:**
-- Show/hide speed indicator di tray icon
-- Context menu item untuk toggle
-- Keyboard shortcut (Ctrl+Shift+S)
-- Test dengan multiple concurrent downloads
+- Textarea multi-baris (satu URL per baris)
+- Validasi + dedupe
+- Satu job per baris, kategori otomatis jalan seperti biasa
 
 **Status:** Pending
 
----
-
-### 2. Clipboard Import
-**Deskripsi:** Add "Paste URL from clipboard" button di main UI, dengan keyboard shortcut.
+### 2. yt-dlp Playlist Support
+**Deskripsi:** URL playlist → satu job per entry (loop `--flat-playlist`).
 
 **Fitur:**
-- "Paste URL from clipboard" button
-- Keyboard shortcut (Ctrl+V)
-- Parse various URL formats (YouTube, direct links, dll)
-- Test dengan berbagai clipboard contents
+- Detect playlist vs single video
+- Konfirmasi jumlah entry sebelum enqueue
+- `--no-playlist` tetap default untuk URL single-video
 
-**Status:** Pending
-
----
-
-### 3. Auto-Retry
-**Deskripsi:** Add retry count ke job metadata, auto-retry failed downloads up to N times.
-
-**Fitur:**
-- Retry count di job metadata
-- Auto-retry failed downloads up to N times
-- Configurable retry delay
-- Test dengan network failures
-
-**Status:** Pending
-
----
+**Status:** Pending (`ytdlp.rs` memakai `--no-playlist`)
 
 ## Medium Priority
 
-### 4. Missing-File Badge
-**Deskripsi:** Show badge pada job card jika file missing, dengan "Locate file" button.
+### 3. Time-Based Scheduler
+**Deskripsi:** Queue start/stop pada jam tertentu (seperti IDM scheduler).
 
-**Fitur:**
-- Badge jika file missing
-- "Locate file" button
-- Scan download directory untuk missing files
-- Test dengan partial downloads
+**Status:** Pending (priority ordering sudah ada; hanya trigger waktu yang belum)
 
-**Status:** Pending
-
----
-
-### 5. Batch Add
-**Deskripsi:** Add "Add multiple URLs" dialog, support CSV/JSON input.
-
-**Fitur:**
-- "Add multiple URLs" dialog
-- Support CSV/JSON input
-- Parse dan validate URLs
-- Test dengan 10+ URLs
+### 4. Firefox Extension Port
+**Deskripsi:** Port `ext/chrome` ke WebExtension Firefox (manifest beda: native
+messaging host manifest + background).
 
 **Status:** Pending
-
----
 
 ## Low Priority
 
-### 6. Named Queues/Scheduler
-**Deskripsi:** Add queue creation dialog, assign jobs ke queues, schedule queue execution (time-based).
-
-**Fitur:**
-- Queue creation dialog
-- Assign jobs ke queues
-- Schedule queue execution (time-based)
-- Test dengan multiple queues
-
+### 5. Search/Filter Job List
 **Status:** Pending
 
----
+### 6. Multi-Source/Mirror per Job
+**Status:** Pending (engine sudah punya cross-URL resume sebagai fondasi)
 
 ## Task Dependencies
 
-- Tray speed toggle → independent
-- Clipboard import → independent
-- Auto-retry → independent
-- Missing-file badge → independent
-- Batch add → independent
-- Named queues/scheduler → independent
-
-**Catatan:** Semua tasks independent, bisa dikerjakan secara paralel.
-
----
-
-## Success Criteria
-
-- All high priority tasks completed
-- All tests passing
-- Manual testing completed
-- Documentation updated
-- No breaking changes ke existing functionality
+Batch add → independent. Playlist → independent. Scheduler → bergantung pada
+named queues (sudah selesai). Semua lainnya independent.
