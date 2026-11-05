@@ -34,7 +34,7 @@ function isPageUrl(u) {
 $("b-add").onclick = () => {
   queueAssignNext = queueSel !== "all" ? queueSel : null;
   openModal(`<h3>${t("dlg_add_title")}</h3>
-    <input id="m-url" placeholder="${esc(t("ph_url"))}" autofocus spellcheck="false" autocomplete="off" autocapitalize="off" />
+    <textarea id="m-url" rows="1" placeholder="${esc(t("ph_url"))}" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
     <div id="m-hint" class="mhint"></div>
     <div id="m-quality"></div>
     <div class="btns">
@@ -44,7 +44,30 @@ $("b-add").onclick = () => {
     </div>`);
   $("m-cancel").onclick = closeModal;
   const hint = (txt) => { $("m-hint").textContent = txt || ""; };
-  hint(isPageUrl($("m-url").value) ? t("hint_page") : "");
+  // batch: one URL per line ("#" = comment); same rules as `rdm add -`
+  const parsedUrls = () => {
+    const seen = new Set();
+    const out = [];
+    for (let raw of $("m-url").value.split("\n")) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      if (!/^https?:\/\//i.test(line)) continue;
+      if (!seen.has(line)) { seen.add(line); out.push(line); }
+    }
+    return out;
+  };
+  const refreshHint = () => {
+    const multi = $("m-url").value.includes("\n");
+    $("m-detect").style.display = multi ? "none" : "";
+    if (multi) {
+      const n = parsedUrls().length;
+      hint(n ? t("urls_parsed", { n }) : t("urls_none"));
+    } else {
+      hint(isPageUrl($("m-url").value.trim()) ? t("hint_page") : "");
+    }
+  };
+  $("m-url").addEventListener("input", refreshHint);
+  refreshHint();
 
   const renderQuality = (m) => {
     if (m.gallery) {
@@ -86,7 +109,7 @@ $("b-add").onclick = () => {
 
   const detect = async () => {
     const url = $("m-url").value.trim();
-    if (!url) return;
+    if (!url || url.includes("\n")) return;
     hint(t("hint_detecting"));
     window.__onFormats = (m) => {
       window.__onFormats = null;
@@ -98,14 +121,32 @@ $("b-add").onclick = () => {
   $("m-detect").onclick = detect;
 
   const go = async () => {
-    const url = $("m-url").value.trim();
+    const urls = parsedUrls();
+    if (urls.length > 1) {
+      // batch: one job per line, sequential so the queue fills in order
+      let ok = 0;
+      for (const u of urls) {
+        try { await invoke("add_url", { url: u }); ok++; } catch (e) { toast(trErr(e)); }
+      }
+      if (ok > 1) toast(t("batch_added", { n: ok }));
+      closeModal();
+      return;
+    }
+    const url = urls[0] || $("m-url").value.trim();
     if (!url) return;
     if (isPageUrl(url) && !$("m-quality").innerHTML) { return detect(); }
     try { await invoke("add_url", { url }); } catch (e) { toast(trErr(e)); }
     closeModal();
   };
   $("m-ok").onclick = go;
-  $("m-url").addEventListener("keydown", (e) => e.key === "Enter" && go());
+  // single-line field behaves like the old input (Enter = go);
+  // once multi-line, Enter must insert a newline instead
+  $("m-url").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !$("m-url").value.includes("\n")) {
+      e.preventDefault();
+      go();
+    }
+  });
   setTimeout(() => $("m-url").focus(), 50);
 };
 

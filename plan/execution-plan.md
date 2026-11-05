@@ -8,8 +8,7 @@ jangan duplikasi isi gaps.md.
 
 ## Task Berjalan (2026-11-05)
 
-### Struktur — SELESAI
-1. ~~Bersih AGENTS.md dari kontaminasi GridCraft~~ ✅
+### Struktur — SELESAI1. ~~Bersih AGENTS.md dari kontaminasi GridCraft~~ ✅
 2. ~~Sinkron STATUS/gaps/feature-parity dengan realita kode~~ ✅
 3. ~~Split `crates/rdm-daemon/src/lib.rs` → modul~~ ✅
    (`settings`/`protocol`/`jobs`/`runners`/`uilaunch`; lib.rs 2291→372 baris;
@@ -20,7 +19,8 @@ jangan duplikasi isi gaps.md.
    0 console error)
 
 ### Berikutnya (fitur)
-5. Batch add (dialog + `rdm add -`)
+5. ~~Batch add (dialog + `rdm add -`)~~ ✅ (2026-11-05: UI textarea
+   multi-baris; CLI rewrite jadi klien daemon penuh; 4 test + smoke live)
 6. yt-dlp playlist support
 
 ## Autonomous Operation Protocol

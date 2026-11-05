@@ -384,14 +384,15 @@
     font-size: 11.5px; font-weight: 600; color: var(--dim);
   }
   #dlg .dlgbody .sec:first-child { margin-top: 0; }
-  #dlg input, #dlg select {
+  #dlg input, #dlg select, #dlg textarea {
     width: 100%; padding: 7px 10px; margin-bottom: 12px;
     border: 1px solid var(--ctl); border-radius: 6px; font: inherit;
     background: var(--input-bg); color: var(--txt);
     transition: border-color .12s ease;
   }
-  #dlg input:hover, #dlg select:hover { border-color: var(--ctl-hov); }
-  #dlg input:focus-visible, #dlg select:focus-visible {
+  #dlg input:hover, #dlg select:hover, #dlg textarea:hover { border-color: var(--ctl-hov); }
+  #dlg textarea { resize: vertical; min-height: 34px; line-height: 1.4; }
+  #dlg input:focus-visible, #dlg select:focus-visible, #dlg textarea:focus-visible {
     outline: 2px solid var(--focus); outline-offset: -1px; border-color: var(--focus);
   }
   #dlg .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }

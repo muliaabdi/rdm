@@ -9,8 +9,12 @@ name = "rdm"
 path = "src/main.rs"
 
 [dependencies]
-rdm-core = { path = "../rdm-core" }
-tokio = { workspace = true }
+rdm-daemon = { path = "../rdm-daemon" }
+tokio = { workspace = true, features = ["net", "io-util"] }
 clap = { workspace = true }
 anyhow = { workspace = true }
+serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

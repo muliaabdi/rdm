@@ -45,6 +45,9 @@ over browser downloads and detects videos on the page.
   live polling; `.m3u8` → `.ts`.
 - **Clipboard import**: watched in the background; a copied download or
   video-page URL pops an offer card (toggle in Settings).
+- **Batch add**: the Add dialog takes one URL per line (duplicates and `#`
+  comments are dropped); the CLI reads a file or stdin the same way
+  (`rdm add - < urls.txt`).
 - **Desktop UI**: list + categories + per-segment graph, detail dialog with
   exact-file deletion info, missing-file badges on completed jobs whose file
   disappeared, tray icon with active downloads (click = focus + select
@@ -85,7 +88,8 @@ Without the installer: `cargo build --release`, then run `rdm-daemon` and
 - From the browser: click a normal download → RDM takes over (optionally
   confirmed via dialog); or right-click → "Download with RDM".
 - Videos: the pill above the player, or Add URL → Detect.
-- CLI: `rdm add <url>`, `rdm list`, `rdm pause <id>`, `rdm resume <id>`.
+- CLI: `rdm add <url>`, `rdm add - < urls.txt` (batch), `rdm list`,
+  `rdm pause/resume/restart/delete <id>`.
 - Settings (UI): save folder, category folders, segments, parallel
   downloads, speed limit, file types to take over, clipboard watching,
   language, notifications, autostart, automatic yt-dlp updates.

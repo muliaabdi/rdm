@@ -13,25 +13,26 @@
 - Auto-retry (3x backoff), clipboard import, missing-file badge, tray speed
   display + speed-limit submenu — semua sudah live
 - Named queues + priority ordering sudah live (UI + DB)
+- Batch add live: dialog Add terima multi-baris (dedupe + validasi) dan
+  `rdm add -` dari stdin; CLI kini klien daemon penuh
+  (add/list/pause/resume/restart/delete)
 
 ## Next Task
 
-**Batch add** — dialog multi-URL (newline/CSV), validasi, satu job per baris.
-Sinergis dengan CLI `rdm add -`.
+**yt-dlp playlist support** — URL playlist → satu job per entry.
 
 ## Backlog Priorities
 
 ### High Priority
-1. Batch add (dialog + CLI stdin)
-2. yt-dlp playlist support (satu URL → banyak job)
+1. yt-dlp playlist support (satu URL → banyak job)
 
 ### Medium Priority
-3. Time-based scheduler (queue start/stop pada jam tertentu)
-4. Firefox extension port (WebExtension dari basis MV3)
+2. Time-based scheduler (queue start/stop pada jam tertentu)
+3. Firefox extension port (WebExtension dari basis MV3)
 
 ### Low Priority
-5. Search/filter job list
-6. Multi-source/mirror per job
+4. Search/filter job list
+5. Multi-source/mirror per job
 
 ## Catatan
 

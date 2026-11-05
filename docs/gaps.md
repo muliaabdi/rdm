@@ -14,20 +14,11 @@ langsung dari kode (bukan asumsi). Terakhir diperbarui 2026-11-05.
 | Missing-file badge | `j.missing` + `.st.missing` di UI, cek `out_path` di daemon |
 | Tray speed display + submenu limit | `update_tray_jobs`, `tray_fmt_bps` di `rdm-ui` |
 | Named queues + priority | DB v0.8 (`queue`, priority), queue picker di UI |
+| Batch add (UI dialog + `rdm add -`) | `dialogs.js` (textarea multi-baris), `rdm-cli/src/client.rs` |
 
 ## High Priority
 
-### 1. Batch Add
-**Deskripsi:** Dialog "Add multiple URLs" + CLI stdin (`rdm add -`).
-
-**Fitur:**
-- Textarea multi-baris (satu URL per baris)
-- Validasi + dedupe
-- Satu job per baris, kategori otomatis jalan seperti biasa
-
-**Status:** Pending
-
-### 2. yt-dlp Playlist Support
+### 1. yt-dlp Playlist Support
 **Deskripsi:** URL playlist → satu job per entry (loop `--flat-playlist`).
 
 **Fitur:**
@@ -39,12 +30,12 @@ langsung dari kode (bukan asumsi). Terakhir diperbarui 2026-11-05.
 
 ## Medium Priority
 
-### 3. Time-Based Scheduler
+### 2. Time-Based Scheduler
 **Deskripsi:** Queue start/stop pada jam tertentu (seperti IDM scheduler).
 
 **Status:** Pending (priority ordering sudah ada; hanya trigger waktu yang belum)
 
-### 4. Firefox Extension Port
+### 3. Firefox Extension Port
 **Deskripsi:** Port `ext/chrome` ke WebExtension Firefox (manifest beda: native
 messaging host manifest + background).
 
@@ -52,13 +43,22 @@ messaging host manifest + background).
 
 ## Low Priority
 
-### 5. Search/Filter Job List
+### 4. Search/Filter Job List
 **Status:** Pending
 
-### 6. Multi-Source/Mirror per Job
+### 5. Multi-Source/Mirror per Job
 **Status:** Pending (engine sudah punya cross-URL resume sebagai fondasi)
 
 ## Task Dependencies
 
-Batch add → independent. Playlist → independent. Scheduler → bergantung pada
-named queues (sudah selesai). Semua lainnya independent.
+Playlist → independent. Scheduler → bergantung pada named queues (sudah
+selesai). Semua lainnya independent.
+
+## Catatan implementasi batch add (2026-11-05)
+
+- UI: dialog Add pakai `<textarea>`; multi-baris = batch (dedupe, skip `#`
+  dan non-http, hint jumlah tautan, Detect disembunyikan). Enter submit hanya
+  saat single-line.
+- CLI: `rdm add -` baca stdin; aturan parse sama (`client::parse_urls`).
+- CLI kini klien daemon penuh (add/list/pause/resume/restart/delete), bukan
+  lagi engine mandiri M0 yang mengabaikan queue/kategori/extractor.

@@ -25,7 +25,7 @@ Perbandingan fitur RDM vs IDM (Internet Download Manager). Kolom ✅ = ada,
 | Named queues | ✅ | ✅ | Parity |
 | Priority ordering | ✅ | ✅ | Parity |
 | Time-based scheduler | ❌ | ✅ | IDM unggul — backlog medium |
-| Batch add URLs | ❌ | ✅ | IDM unggul — backlog high |
+| Batch add URLs | ✅ dialog multi-baris + `rdm add -` | ✅ | Parity |
 | Playlist (multi-video) | ❌ | ❌ | Belum ada di keduanya |
 | Firefox extension | ❌ | ✅ | IDM unggul — backlog medium |
 | Category folders | ✅ | ✅ | Parity |
@@ -34,8 +34,8 @@ Perbandingan fitur RDM vs IDM (Internet Download Manager). Kolom ✅ = ada,
 
 ## Skor
 
-Parity / unggul RDM: 16 fitur. IDM unggul: 4 (scheduler, batch add, Firefox,
-proxy). Prioritas penutupan gap ada di `docs/gaps.md`.
+Parity / unggul RDM: 17 fitur. IDM unggul: 3 (scheduler, Firefox, proxy).
+Prioritas penutupan gap ada di `docs/gaps.md`.
 
 ## Metodologi
 
